@@ -301,6 +301,7 @@ window.switchTab = (tab, el) => {
   currentTab = tab;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active')); el.classList.add('active');
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active')); document.getElementById('panel-' + tab).classList.add('active');
+  if (tab === 'calendar') renderCalendar(events);
 };
 window.closeModal = id => document.getElementById(id).classList.remove('open');
 window.doPunch = () => _dp(currentUser, attendance);
@@ -376,7 +377,10 @@ function startClock() {
 function startListeners() {
   onValue(ref(db, 'tickets'), s => { tickets = s.val() || {}; renderTickets(tickets); renderDashboard(currentUser, tickets, inventory, attendance, users); });
   onValue(ref(db, 'inventory'), s => { inventory = s.val() || {}; renderInventory(currentUser, inventory); renderDashboard(currentUser, tickets, inventory, attendance, users); });
-  onValue(ref(db, 'events'), s => { events = s.val() || {}; renderCalendar(events); });
+  onValue(ref(db, 'events'), s => {
+    events = s.val() || {};
+    if (currentTab === 'calendar') renderCalendar(events);
+  });
   onValue(ref(db, 'attendance'), s => { attendance = s.val() || {}; renderAttPunch(currentUser, attendance); renderAttLog(currentUser, attendance); renderDashboard(currentUser, tickets, inventory, attendance, users); });
   onValue(ref(db, 'users'), s => { users = s.val() || {}; renderUserList(currentUser, users); });
   // Holiday listeners
