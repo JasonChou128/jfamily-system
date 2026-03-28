@@ -79,7 +79,8 @@ export async function renderCalendar(events) {
 
   const holidays = getMergedHolidays(calYear);
   const todayStr = today();
-  document.getElementById('mBtn').textContent = `${calYear} ${MONTHS_TW[calMonth]}`;
+  const mBtn = document.getElementById('mBtn');
+  if (mBtn) mBtn.textContent = `${calYear} ${MONTHS_TW[calMonth]}`;
 
   const firstDay = new Date(calYear, calMonth, 1).getDay();
   const totalDays = new Date(calYear, calMonth + 1, 0).getDate();
@@ -150,9 +151,9 @@ export async function renderCalendar(events) {
   });
 
   html += `</tbody>`;
-  document.getElementById('calTable').innerHTML = html;
+  const calTable = document.getElementById('calTable');
+  if (calTable) calTable.innerHTML = html;
 
-  // Render event list below calendar
   renderEventList(events);
 }
 
