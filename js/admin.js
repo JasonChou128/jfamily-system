@@ -181,7 +181,8 @@ export async function deleteHoliday(year, date) {
 
 // ── REPORT ──
 export function generateReport(users, tickets, inventory, attendance, events) {
-  const td = new Date().toISOString().slice(0, 10);
+  const n = new Date();
+  const td = `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
 
   const attSummary = Object.entries(users).map(([uid, u]) => {
     const rec = attendance[uid]?.[td];
