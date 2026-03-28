@@ -84,10 +84,20 @@ export function renderCalendar(events) {
       const isWeekend = dow === 0 || dow === 6;
       const ds = isOther ? '' : `${calYear}-${pad(calMonth + 1)}-${pad(cell.d)}`;
       const holiday = isOther ? null : holidays[ds];
-      const dayEvents = isOther ? [] : Object.entries(events)
-        .filter(([date]) => date === ds)
-        .flatMap(([, evts]) => typeof evts === 'object' && !evts.title ? Object.values(evts) : [evts])
-        .filter(Boolean);
+      const dayEvents = isOther ? [] : (() => {
+        const result = [];
+        // New format: events[date][key] = event
+        if (events[ds] && typeof events[ds] === 'object' && !events[ds].title) {
+          Object.values(events[ds]).forEach(e => { if (e && e.title) result.push(e); });
+        }
+        // Old flat format: events[key] = { date, title, ... }
+        Object.values(events).forEach(e => {
+          if (e && typeof e === 'object' && e.title && (e.date === ds || e.start === ds)) {
+            if (!result.find(r => r.title === e.title && r.date === ds)) result.push(e);
+          }
+        });
+        return result;
+      })();
       const isToday = !isOther && ds === todayStr;
 
       // Cell background
@@ -140,14 +150,28 @@ function renderEventList(events) {
   const el = document.getElementById('eventList');
   if (!el) return;
   const allEvs = [];
-  Object.entries(events).forEach(([date, evts]) => {
-    if (typeof evts === 'object' && !evts.title) {
-      Object.entries(evts).forEach(([key, e]) => { if (e && e.title) allEvs.push({ ...e, _date: date, _key: key }); });
-    } else if (evts && evts.title) {
-      allEvs.push({ ...evts, _date: date, _key: date });
+  const seen = new Set();
+
+  Object.entries(events).forEach(([key, val]) => {
+    if (val && typeof val === 'object') {
+      if (val.title) {
+        // Old flat format: { title, date, color... }
+        const id = key;
+        if (!seen.has(id)) { seen.add(id); allEvs.push({ ...val, _id: key, _date: val.date || key, _key: key }); }
+      } else {
+        // New nested format: { subkey: { title, date... } }
+        Object.entries(val).forEach(([subkey, e]) => {
+          if (e && e.title) {
+            const id = `${key}/${subkey}`;
+            if (!seen.has(id)) { seen.add(id); allEvs.push({ ...e, _date: key, _key: subkey }); }
+          }
+        });
+      }
     }
   });
+
   allEvs.sort((a, b) => (a.date || a._date || '').localeCompare(b.date || b._date || ''));
+
   el.innerHTML = allEvs.length === 0
     ? '<div class="empty-state"><div class="icon">📅</div>尚無排程</div>'
     : allEvs.map(e => `
