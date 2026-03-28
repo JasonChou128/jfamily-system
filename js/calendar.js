@@ -174,15 +174,26 @@ function renderEventList(events) {
 
   el.innerHTML = allEvs.length === 0
     ? '<div class="empty-state"><div class="icon">📅</div>尚無排程</div>'
-    : allEvs.map(e => `
-      <div class="cal-event-item">
-        <div class="cal-event-dot" style="background:${e.color || '#e8c14a'}"></div>
-        <div style="flex:1">
-          <div style="font-size:13px;font-weight:500">${e.title}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${e.date || e._date} ${e.time || ''}${e.note ? ' · ' + e.note : ''}</div>
-        </div>
-        <button onclick="window.deleteEvent('${e._date}','${e._key}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px">×</button>
-      </div>`).join('');
+    : allEvs.map(e => {
+        const meta = [
+          e.date || e._date,
+          e.time ? (e.timeEnd ? `${e.time}－${e.timeEnd}` : e.time) : '',
+          e.client || '',
+          e.location || '',
+          e.assign || '',
+          e.equipment || '',
+        ].filter(Boolean).join(' · ');
+        return `
+        <div class="cal-event-item">
+          <div class="cal-event-dot" style="background:${e.color || '#e8c14a'}"></div>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:500">${e.title}</div>
+            <div style="font-size:11px;color:var(--text-muted);margin-top:2px">${meta}</div>
+            ${e.note ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">${e.note}</div>` : ''}
+          </div>
+          <button onclick="window.deleteEvent('${e._date}','${e._key}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px">×</button>
+        </div>`;
+      }).join('');
 }
 
 // ── NAVIGATION ──
@@ -237,8 +248,23 @@ export function goToday() {
 }
 
 // ── EVENTS CRUD ──
-export function openEventModal() {
-  document.getElementById('e-date').value = today();
+export function openEventModal(users) {
+  const td = today();
+  document.getElementById('e-date').value = td;
+  document.getElementById('e-date-end').value = td;
+  document.getElementById('e-time').value = '';
+  document.getElementById('e-time-end').value = '';
+  document.getElementById('e-title').value = '';
+  document.getElementById('e-note').value = '';
+  document.getElementById('e-location').value = '';
+  // Populate assign dropdown
+  const assignSel = document.getElementById('e-assign');
+  const cur = assignSel.value;
+  if (users) {
+    assignSel.innerHTML = '<option value="">未指派</option>' +
+      Object.entries(users).map(([, u]) => `<option value="${u.name}">${u.name}</option>`).join('');
+  }
+  assignSel.value = cur;
   document.getElementById('eventModal').classList.add('open');
 }
 
@@ -248,9 +274,18 @@ export async function saveEvent() {
   const date = document.getElementById('e-date').value;
   const newRef = push(ref(db, `events/${date}`));
   await set(newRef, {
-    id: newRef.key, title, date,
-    time: document.getElementById('e-time').value || '00:00',
+    id: newRef.key,
+    title,
+    date,
+    dateEnd: document.getElementById('e-date-end').value || date,
+    time: document.getElementById('e-time').value || '',
+    timeEnd: document.getElementById('e-time-end').value || '',
     color: document.getElementById('e-type').value,
+    client: document.getElementById('e-client').value || '',
+    equipment: document.getElementById('e-equipment').value || '',
+    assign: document.getElementById('e-assign').value || '',
+    location: document.getElementById('e-location').value.trim() || '',
+    reminder: document.getElementById('e-reminder').value || '',
     note: document.getElementById('e-note').value.trim(),
   });
   document.getElementById('eventModal').classList.remove('open');
