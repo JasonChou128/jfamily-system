@@ -1,0 +1,599 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>J Family 管理系統</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700;900&family=Bebas+Neue&family=JetBrains+Mono:wght@400;600&display=swap');
+:root {
+  --bg:#0a0a0f; --surface:#111118; --surface2:#1a1a24; --surface3:#222230;
+  --border:#2a2a3a; --accent:#e8c14a; --accent2:#c0392b; --accent3:#27ae60;
+  --text:#f0f0f8; --text-muted:#6b6b8a; --text-dim:#3a3a52; --radius:10px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column}
+
+/* LOADING */
+#loadingOverlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;flex-direction:column;gap:16px}
+.loading-logo{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:6px;color:var(--accent)}
+.loading-bar-wrap{width:200px;height:3px;background:var(--surface3);border-radius:10px;overflow:hidden}
+.loading-bar{height:100%;background:var(--accent);border-radius:10px;animation:loadbar 1.5s ease-in-out infinite}
+@keyframes loadbar{0%{width:0;margin-left:0}50%{width:60%;margin-left:20%}100%{width:0;margin-left:100%}}
+.loading-text{font-size:12px;color:var(--text-muted);letter-spacing:1px}
+
+/* LOGIN */
+#loginScreen{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:1000;flex-direction:column}
+.login-bg{position:absolute;inset:0;background:radial-gradient(ellipse at 30% 20%,rgba(232,193,74,.06) 0%,transparent 60%),radial-gradient(ellipse at 80% 80%,rgba(192,57,43,.05) 0%,transparent 50%)}
+.login-card{position:relative;width:340px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px 36px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
+.login-logo{font-family:'Bebas Neue',sans-serif;font-size:42px;letter-spacing:6px;color:var(--accent);text-align:center;margin-bottom:4px}
+.login-sub{text-align:center;font-size:11px;color:var(--text-muted);letter-spacing:3px;text-transform:uppercase;margin-bottom:36px}
+.login-field{margin-bottom:16px}
+.login-field label{display:block;font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:6px}
+.login-field input{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:11px 14px;color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:14px;outline:none;transition:border-color .2s}
+.login-field input:focus{border-color:var(--accent)}
+.login-btn{width:100%;background:var(--accent);color:#0a0a0f;border:none;border-radius:8px;padding:13px;font-family:'Bebas Neue',sans-serif;font-size:18px;letter-spacing:3px;cursor:pointer;margin-top:8px;transition:opacity .2s,transform .1s}
+.login-btn:hover{opacity:.9;transform:translateY(-1px)}
+.login-error{color:var(--accent2);font-size:12px;text-align:center;margin-top:10px;min-height:18px}
+.login-hint{margin-top:20px;padding-top:20px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim);line-height:1.8;font-family:'JetBrains Mono',monospace}
+
+/* APP */
+#app{display:none;flex-direction:column;height:100%}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:56px;display:flex;align-items:center;gap:16px;flex-shrink:0}
+.topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:4px;color:var(--accent)}
+.topbar-sep{width:1px;height:20px;background:var(--border)}
+.topbar-user{display:flex;align-items:center;gap:8px;font-size:13px}
+.topbar-avatar{width:28px;height:28px;border-radius:8px;background:rgba(232,193,74,.2);display:flex;align-items:center;justify-content:center;font-size:13px}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.topbar-time{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-muted)}
+.logout-btn{font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);padding:4px 10px;border-radius:6px;cursor:pointer;transition:color .2s,border-color .2s}
+.logout-btn:hover{color:var(--accent2);border-color:var(--accent2)}
+.sync-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;background:rgba(39,174,96,.1);color:var(--accent3);border:1px solid rgba(39,174,96,.2);padding:2px 8px;border-radius:20px}
+.sync-dot{width:6px;height:6px;background:var(--accent3);border-radius:50%;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+
+.nav-tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;overflow-x:auto;flex-shrink:0;scrollbar-width:none}
+.nav-tabs::-webkit-scrollbar{display:none}
+.nav-tab{padding:12px 20px;font-size:13px;font-weight:500;color:var(--text-muted);cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;transition:color .2s,border-color .2s;display:flex;align-items:center;gap:7px;flex-shrink:0}
+.nav-tab:hover{color:var(--text)}
+.nav-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
+
+.content{flex:1;overflow-y:auto;padding:20px}
+.content::-webkit-scrollbar{width:5px}
+.content::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px}
+.panel{display:none}
+.panel.active{display:block}
+
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin-bottom:16px}
+.card-title{font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:16px;display:flex;align-items:center;gap:8px;justify-content:space-between}
+
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px;position:relative;overflow:hidden}
+.stat-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.stat-card.gold::before{background:var(--accent)}
+.stat-card.red::before{background:var(--accent2)}
+.stat-card.green::before{background:var(--accent3)}
+.stat-card.blue::before{background:#3b82f6}
+.stat-val{font-family:'Bebas Neue',sans-serif;font-size:36px;line-height:1;margin-bottom:4px}
+.stat-card.gold .stat-val{color:var(--accent)}
+.stat-card.red .stat-val{color:var(--accent2)}
+.stat-card.green .stat-val{color:var(--accent3)}
+.stat-card.blue .stat-val{color:#3b82f6}
+.stat-label{font-size:11px;color:var(--text-muted);letter-spacing:.5px}
+
+.punch-area{text-align:center;padding:30px 20px}
+.punch-clock-display{font-family:'Bebas Neue',sans-serif;font-size:56px;color:var(--accent);letter-spacing:4px;line-height:1;margin-bottom:6px}
+.punch-date{font-size:13px;color:var(--text-muted);margin-bottom:28px}
+.punch-btn{padding:16px 48px;border:none;border-radius:12px;font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;cursor:pointer;transition:transform .15s,opacity .15s}
+.punch-btn:hover{transform:scale(1.03)}
+.punch-btn:active{transform:scale(.97)}
+.punch-btn.in{background:var(--accent3);color:#fff}
+.punch-btn.out{background:var(--accent2);color:#fff}
+.punch-btn.done{background:var(--surface3);color:var(--text-muted);cursor:default}
+.punch-status{margin-top:16px;font-size:13px;color:var(--text-muted)}
+
+.att-table{width:100%;border-collapse:collapse;font-size:13px}
+.att-table th{text-align:left;padding:8px 12px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);border-bottom:1px solid var(--border)}
+.att-table td{padding:10px 12px;border-bottom:1px solid var(--border)}
+.att-table tr:last-child td{border-bottom:none}
+.badge{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.badge.present{background:rgba(39,174,96,.15);color:var(--accent3)}
+.badge.absent{background:rgba(192,57,43,.15);color:var(--accent2)}
+
+.inv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:12px}
+.inv-item{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:14px 16px}
+.inv-item-name{font-size:14px;font-weight:500;margin-bottom:6px}
+.inv-item-meta{font-size:12px;color:var(--text-muted);margin-bottom:10px}
+.inv-bar-wrap{height:4px;background:var(--surface3);border-radius:10px;overflow:hidden;margin-bottom:6px}
+.inv-bar{height:100%;border-radius:10px;transition:width .3s}
+.inv-count{font-family:'JetBrains Mono',monospace;font-size:12px;display:flex;justify-content:space-between}
+.inv-count .low{color:var(--accent2)}
+.inv-count .ok{color:var(--accent3)}
+.inv-actions{display:flex;gap:6px;margin-top:10px}
+.inv-btn{flex:1;padding:5px;border:1px solid var(--border);background:var(--surface3);color:var(--text);border-radius:6px;font-size:12px;cursor:pointer;transition:background .15s}
+.inv-btn:hover{background:var(--border)}
+.inv-btn.del{color:var(--accent2)}
+
+.cal-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.cal-nav-btn{background:var(--surface2);border:1px solid var(--border);border-radius:6px;padding:6px 12px;color:var(--text);cursor:pointer;font-size:14px;transition:background .15s}
+.cal-nav-btn:hover{background:var(--surface3)}
+.cal-month-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:var(--accent)}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal-dow{text-align:center;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);padding:6px 0}
+.cal-day{aspect-ratio:1;background:var(--surface2);border:1px solid var(--border);border-radius:8px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:14px;cursor:pointer;transition:background .15s;position:relative;min-height:44px}
+.cal-day:hover{background:var(--surface3)}
+.cal-day.today{border-color:var(--accent);color:var(--accent)}
+.cal-day.other-month{opacity:.3}
+.cal-day.holiday{color:var(--accent2)}
+.cal-day.has-event::after{content:'';position:absolute;bottom:5px;width:5px;height:5px;background:var(--accent);border-radius:50%}
+.cal-event-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--surface2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px}
+.cal-event-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+
+.ticket-filters{display:flex;gap:8px;margin-bottom:16px;flex-wrap:wrap}
+.filter-btn{padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--border);background:var(--surface2);color:var(--text-muted);transition:all .15s}
+.filter-btn.active{border-color:var(--accent);color:var(--accent);background:rgba(232,193,74,.08)}
+.ticket-card{background:var(--surface2);border:1px solid var(--border);border-left:3px solid var(--border);border-radius:8px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .15s,transform .1s}
+.ticket-card:hover{transform:translateX(2px)}
+.ticket-card.high{border-left-color:var(--accent2)}
+.ticket-card.medium{border-left-color:var(--accent)}
+.ticket-card.low{border-left-color:#3b82f6}
+.ticket-header{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.ticket-id{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text-muted)}
+.ticket-title{font-size:14px;font-weight:500;flex:1}
+.ticket-status{display:inline-block;padding:2px 8px;border-radius:20px;font-size:11px;font-weight:600}
+.status-pending{background:rgba(232,193,74,.15);color:var(--accent)}
+.status-progress{background:rgba(59,130,246,.15);color:#3b82f6}
+.status-done{background:rgba(39,174,96,.15);color:var(--accent3)}
+.ticket-meta{font-size:12px;color:var(--text-muted);display:flex;gap:14px;flex-wrap:wrap}
+.priority-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.p-high{background:var(--accent2)} .p-medium{background:var(--accent)} .p-low{background:#3b82f6}
+
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.7);display:none;align-items:center;justify-content:center;z-index:500;padding:20px}
+.modal-overlay.open{display:flex}
+.modal{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:28px;width:100%;max-width:480px;max-height:85vh;overflow-y:auto}
+.modal-title{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:3px;color:var(--accent);margin-bottom:20px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:6px}
+.form-group input,.form-group select,.form-group textarea{width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:14px;outline:none;transition:border-color .2s}
+.form-group input:focus,.form-group select:focus,.form-group textarea:focus{border-color:var(--accent)}
+.form-group select option{background:var(--surface2)}
+.form-group textarea{resize:vertical;min-height:80px}
+.modal-actions{display:flex;gap:10px;margin-top:20px;justify-content:flex-end;flex-wrap:wrap}
+.btn{padding:9px 20px;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;border:none;transition:opacity .15s,transform .1s}
+.btn:hover{opacity:.85}
+.btn:active{transform:scale(.97)}
+.btn-primary{background:var(--accent);color:#0a0a0f}
+.btn-danger{background:var(--accent2);color:#fff}
+.btn-ghost{background:var(--surface2);color:var(--text);border:1px solid var(--border)}
+
+.fab{position:fixed;bottom:24px;right:24px;width:52px;height:52px;background:var(--accent);border:none;border-radius:50%;color:#0a0a0f;font-size:24px;cursor:pointer;box-shadow:0 4px 20px rgba(232,193,74,.4);display:none;align-items:center;justify-content:center;transition:transform .2s,box-shadow .2s;z-index:100}
+.fab:hover{transform:scale(1.08);box-shadow:0 6px 28px rgba(232,193,74,.5)}
+.empty-state{text-align:center;padding:40px 20px;color:var(--text-muted);font-size:14px}
+.empty-state .icon{font-size:36px;margin-bottom:10px}
+
+@media(max-width:480px){.content{padding:12px}.topbar{padding:0 12px}.punch-clock-display{font-size:42px}.dash-grid{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<div class="loading-overlay" id="loadingOverlay">
+  <div class="loading-logo">J FAMILY</div>
+  <div class="loading-bar-wrap"><div class="loading-bar"></div></div>
+  <div class="loading-text">連線至雲端資料庫...</div>
+</div>
+
+<div id="loginScreen">
+  <div class="login-bg"></div>
+  <div class="login-card">
+    <div class="login-logo">J FAMILY</div>
+    <div class="login-sub">售後服務管理系統</div>
+    <div class="login-field"><label>帳號</label><input type="text" id="loginUser" placeholder="輸入帳號" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <div class="login-field"><label>密碼</label><input type="password" id="loginPass" placeholder="輸入密碼" onkeydown="if(event.key==='Enter')doLogin()"></div>
+    <button class="login-btn" onclick="doLogin()">LOGIN</button>
+    <div class="login-error" id="loginError"></div>
+    <div class="login-hint">Boss: jason / boss123<br>工程師: eng1~eng4 / 1234</div>
+  </div>
+</div>
+
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-logo">J FAMILY</div>
+    <div class="topbar-sep"></div>
+    <div class="topbar-user">
+      <div class="topbar-avatar" id="topAvatar">👤</div>
+      <span id="topUsername">-</span>
+      <span class="sync-badge"><span class="sync-dot"></span>雲端同步</span>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-time" id="topTime">--:--:--</div>
+      <button class="logout-btn" onclick="doLogout()">登出</button>
+    </div>
+  </div>
+  <div class="nav-tabs">
+    <div class="nav-tab active" onclick="switchTab('dashboard',this)">📊 總覽</div>
+    <div class="nav-tab" onclick="switchTab('attendance',this)">🕐 出勤打卡</div>
+    <div class="nav-tab" onclick="switchTab('inventory',this)">📦 物料管理</div>
+    <div class="nav-tab" onclick="switchTab('calendar',this)">📅 行事曆</div>
+    <div class="nav-tab" onclick="switchTab('tickets',this)">🎫 Issue Ticket</div>
+  </div>
+  <div class="content">
+
+    <div class="panel active" id="panel-dashboard">
+      <div class="dash-grid">
+        <div class="stat-card gold"><div class="stat-val" id="stat-present">0</div><div class="stat-label">今日出勤</div></div>
+        <div class="stat-card red"><div class="stat-val" id="stat-tickets-open">0</div><div class="stat-label">待處理票單</div></div>
+        <div class="stat-card blue"><div class="stat-val" id="stat-tickets-progress">0</div><div class="stat-label">進行中票單</div></div>
+        <div class="stat-card green"><div class="stat-val" id="stat-inv-ok">0</div><div class="stat-label">庫存充足</div></div>
+      </div>
+      <div class="card"><div class="card-title"><span>🎫 最新票單</span></div><div id="dash-recent-tickets"><div class="empty-state"><div class="icon">⏳</div>載入中...</div></div></div>
+      <div class="card"><div class="card-title"><span>🕐 今日出勤</span></div>
+        <table class="att-table"><thead><tr><th>成員</th><th>上班</th><th>下班</th><th>狀態</th></tr></thead><tbody id="dash-attendance"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-attendance">
+      <div class="card">
+        <div class="punch-area">
+          <div class="punch-clock-display" id="punchTime">00:00:00</div>
+          <div class="punch-date" id="punchDate"></div>
+          <button class="punch-btn in" id="punchBtn" onclick="doPunch()">上班打卡</button>
+          <div class="punch-status" id="punchStatus">尚未打卡</div>
+        </div>
+      </div>
+      <div class="card"><div class="card-title"><span>📋 本月出勤紀錄</span></div>
+        <table class="att-table"><thead><tr><th>日期</th><th>上班</th><th>下班</th><th>時數</th><th>狀態</th></tr></thead><tbody id="attendanceLog"></tbody></table>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-inventory">
+      <div class="card">
+        <div class="card-title"><span>📦 物料清單</span><button class="btn btn-primary" onclick="openInvModal()" style="font-size:12px;padding:5px 12px" id="addInvBtn">＋ 新增</button></div>
+        <div class="inv-grid" id="invGrid"><div class="empty-state" style="grid-column:1/-1"><div class="icon">⏳</div>載入中...</div></div>
+      </div>
+    </div>
+
+    <div class="panel" id="panel-calendar">
+      <div class="card">
+        <div class="cal-header">
+          <button class="cal-nav-btn" onclick="changeMonth(-1)">‹</button>
+          <div class="cal-month-title" id="calTitle"></div>
+          <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
+        </div>
+        <div class="cal-grid" id="calGrid"></div>
+      </div>
+      <div class="card"><div class="card-title"><span>📌 排程事件</span><button class="btn btn-primary" onclick="openEventModal()" style="font-size:12px;padding:5px 12px">＋ 新增</button></div><div id="eventList"></div></div>
+    </div>
+
+    <div class="panel" id="panel-tickets">
+      <div class="ticket-filters">
+        <button class="filter-btn active" onclick="filterTickets('all',this)">全部</button>
+        <button class="filter-btn" onclick="filterTickets('pending',this)">待處理</button>
+        <button class="filter-btn" onclick="filterTickets('progress',this)">進行中</button>
+        <button class="filter-btn" onclick="filterTickets('done',this)">已完成</button>
+      </div>
+      <div id="ticketList"></div>
+    </div>
+
+  </div>
+</div>
+
+<button class="fab" id="fab" onclick="onFab()">＋</button>
+
+<!-- MODALS -->
+<div class="modal-overlay" id="ticketModal"><div class="modal">
+  <div class="modal-title">新增 ISSUE TICKET</div>
+  <div class="form-group"><label>標題</label><input type="text" id="t-title" placeholder="簡短描述問題"></div>
+  <div class="form-group"><label>客戶</label><select id="t-client"><option>台積電</option><option>采鈺</option><option>聚恆</option><option>盛齊</option><option>福能</option><option>其他</option></select></div>
+  <div class="form-group"><label>設備類型</label><select id="t-type"><option>半導體搬運機器人</option><option>LFP電池儲能系統</option><option>其他</option></select></div>
+  <div class="form-group"><label>優先等級</label><select id="t-priority"><option value="high">🔴 高</option><option value="medium" selected>🟡 中</option><option value="low">🔵 低</option></select></div>
+  <div class="form-group"><label>指派給</label><select id="t-assign"><option value="">未指派</option><option>工程師 A</option><option>工程師 B</option><option>工程師 C</option><option>工程師 D</option></select></div>
+  <div class="form-group"><label>問題描述</label><textarea id="t-desc" placeholder="詳細說明問題內容..."></textarea></div>
+  <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('ticketModal')">取消</button><button class="btn btn-primary" onclick="saveTicket()">建立票單</button></div>
+</div></div>
+
+<div class="modal-overlay" id="invModal"><div class="modal">
+  <div class="modal-title" id="invModalTitle">新增物料</div>
+  <div class="form-group"><label>品名</label><input type="text" id="i-name" placeholder="物料名稱"></div>
+  <div class="form-group"><label>類別</label><select id="i-cat"><option>機器人零件</option><option>電池元件</option><option>耗材</option><option>工具</option><option>其他</option></select></div>
+  <div class="form-group"><label>現有數量</label><input type="number" id="i-qty" value="0" min="0"></div>
+  <div class="form-group"><label>安全庫存量（低於此值顯示警告）</label><input type="number" id="i-min" value="5" min="0"></div>
+  <div class="form-group"><label>最大庫存</label><input type="number" id="i-max" value="50" min="1"></div>
+  <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('invModal')">取消</button><button class="btn btn-primary" id="invSaveBtn" onclick="saveInv()">新增</button></div>
+</div></div>
+
+<div class="modal-overlay" id="eventModal"><div class="modal">
+  <div class="modal-title">新增排程</div>
+  <div class="form-group"><label>事件標題</label><input type="text" id="e-title" placeholder="標題"></div>
+  <div class="form-group"><label>日期</label><input type="date" id="e-date"></div>
+  <div class="form-group"><label>時間</label><input type="time" id="e-time"></div>
+  <div class="form-group"><label>類型</label><select id="e-type"><option value="#e8c14a">📅 一般排程</option><option value="#c0392b">🔧 現場維修</option><option value="#27ae60">✅ 驗機裝機</option><option value="#3b82f6">📋 保養計畫</option></select></div>
+  <div class="form-group"><label>備註</label><textarea id="e-note" placeholder="備註說明..."></textarea></div>
+  <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('eventModal')">取消</button><button class="btn btn-primary" onclick="saveEvent()">新增</button></div>
+</div></div>
+
+<div class="modal-overlay" id="ticketDetailModal"><div class="modal">
+  <div class="modal-title" id="td-title">票單詳情</div>
+  <div id="td-content"></div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('ticketDetailModal')">關閉</button>
+    <button class="btn btn-primary" id="td-progress-btn" onclick="advanceTicket()">推進狀態</button>
+    <button class="btn btn-danger" onclick="deleteTicket()">刪除</button>
+  </div>
+</div></div>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getDatabase, ref, set, get, push, remove, onValue, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyCpl7kS9SJ3T14YtFReL0woTnie2Bsc_uc",
+  authDomain: "jfamily-system.firebaseapp.com",
+  databaseURL: "https://jfamily-system-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "jfamily-system",
+  storageBucket: "jfamily-system.firebasestorage.app",
+  messagingSenderId: "740658940101",
+  appId: "1:740658940101:web:f42d6915a88c29ad6848ac"
+};
+
+const fbApp = initializeApp(firebaseConfig);
+const db = getDatabase(fbApp);
+
+const USERS = {
+  jason:{ pass:'boss123', name:'Jason (Boss)', role:'boss', avatar:'👑' },
+  eng1: { pass:'1234', name:'工程師 A', role:'eng', avatar:'🔧' },
+  eng2: { pass:'1234', name:'工程師 B', role:'eng', avatar:'🔧' },
+  eng3: { pass:'1234', name:'工程師 C', role:'eng', avatar:'🔧' },
+  eng4: { pass:'1234', name:'工程師 D', role:'eng', avatar:'🔧' },
+};
+
+let currentUser=null, currentTab='dashboard', calYear, calMonth;
+let ticketFilter='all', editingTicketId=null, editingInvId=null;
+let tickets={}, inventory={}, events={}, attendance={};
+
+const today=()=>new Date().toISOString().slice(0,10);
+const nowTime=()=>{const n=new Date();return n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0')};
+
+async function seedIfEmpty(){
+  const snap=await get(ref(db,'tickets'));
+  if(snap.exists())return;
+  await set(ref(db,'tickets'),{
+    'TK001':{title:'機器人手臂異常停機',client:'台積電',type:'半導體搬運機器人',priority:'high',status:'progress',assign:'工程師 A',desc:'Arm3執行搬運時異常停機，錯誤碼E405',created:today(),createdBy:'jason'},
+    'TK002':{title:'儲能系統BMS警報',client:'福能',type:'LFP電池儲能系統',priority:'medium',status:'pending',assign:'工程師 B',desc:'BMS顯示Cell#7電壓異常',created:today(),createdBy:'jason'},
+    'TK003':{title:'定期保養-Q1完成',client:'采鈺',type:'半導體搬運機器人',priority:'low',status:'done',assign:'工程師 C',desc:'Q1定期保養完成，設備正常',created:today(),createdBy:'jason'},
+  });
+  await set(ref(db,'inventory'),{
+    'INV001':{name:'伺服馬達',cat:'機器人零件',qty:8,min:5,max:20},
+    'INV002':{name:'電池模組',cat:'電池元件',qty:3,min:5,max:15},
+    'INV003':{name:'傳感器',cat:'機器人零件',qty:12,min:5,max:30},
+    'INV004':{name:'潤滑油',cat:'耗材',qty:20,min:10,max:50},
+    'INV005':{name:'BMS控制板',cat:'電池元件',qty:2,min:3,max:10},
+  });
+  await set(ref(db,'events'),{
+    'EV001':{title:'台積電定期保養',date:'2026-03-30',time:'09:00',color:'#27ae60',note:'Fab14廠區'},
+    'EV002':{title:'采鈺驗機',date:'2026-04-02',time:'14:00',color:'#27ae60',note:''},
+    'EV003':{title:'福能現場維修',date:'2026-04-05',time:'10:00',color:'#c0392b',note:'儲能系統BMS'},
+  });
+}
+
+function startListeners(){
+  onValue(ref(db,'tickets'),s=>{tickets=s.val()||{};renderTickets();renderDashboard();});
+  onValue(ref(db,'inventory'),s=>{inventory=s.val()||{};renderInventory();renderDashboard();});
+  onValue(ref(db,'events'),s=>{events=s.val()||{};renderCalendar();});
+  onValue(ref(db,'attendance'),s=>{attendance=s.val()||{};renderAttPunch();renderAttLog();renderDashboard();});
+}
+
+window.doLogin=function(){
+  const u=document.getElementById('loginUser').value.trim().toLowerCase();
+  const p=document.getElementById('loginPass').value;
+  if(USERS[u]&&USERS[u].pass===p){
+    currentUser={username:u,...USERS[u]};
+    document.getElementById('loginScreen').style.display='none';
+    document.getElementById('app').style.display='flex';
+    document.getElementById('fab').style.display='flex';
+    document.getElementById('topUsername').textContent=currentUser.name;
+    document.getElementById('topAvatar').textContent=currentUser.avatar;
+    document.getElementById('addInvBtn').style.display=currentUser.role==='boss'?'':'none';
+    const now=new Date(); calYear=now.getFullYear(); calMonth=now.getMonth();
+    startClock(); startListeners();
+  } else { document.getElementById('loginError').textContent='帳號或密碼錯誤'; }
+};
+
+window.doLogout=function(){
+  currentUser=null;
+  document.getElementById('loginScreen').style.display='flex';
+  document.getElementById('app').style.display='none';
+  document.getElementById('fab').style.display='none';
+  document.getElementById('loginUser').value='';
+  document.getElementById('loginPass').value='';
+};
+
+function startClock(){
+  function tick(){
+    const n=new Date(),ts=n.toTimeString().slice(0,8);
+    document.getElementById('topTime').textContent=ts;
+    document.getElementById('punchTime').textContent=ts;
+    document.getElementById('punchDate').textContent=n.toLocaleDateString('zh-TW',{year:'numeric',month:'long',day:'numeric',weekday:'long'});
+  }
+  tick(); setInterval(tick,1000);
+}
+
+window.switchTab=function(tab,el){
+  currentTab=tab;
+  document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active')); el.classList.add('active');
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active')); document.getElementById('panel-'+tab).classList.add('active');
+};
+
+function statusLabel(s){return{pending:'待處理',progress:'進行中',done:'已完成'}[s]||s;}
+
+function renderDashboard(){
+  if(!currentUser)return;
+  const td=today(); let present=0;
+  Object.keys(USERS).forEach(u=>{if(attendance[u]&&attendance[u][td]&&attendance[u][td].in)present++;});
+  document.getElementById('stat-present').textContent=present;
+  const tArr=Object.values(tickets);
+  document.getElementById('stat-tickets-open').textContent=tArr.filter(t=>t.status==='pending').length;
+  document.getElementById('stat-tickets-progress').textContent=tArr.filter(t=>t.status==='progress').length;
+  document.getElementById('stat-inv-ok').textContent=Object.values(inventory).filter(i=>i.qty>=i.min).length;
+
+  const recent=Object.entries(tickets).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3);
+  document.getElementById('dash-recent-tickets').innerHTML=recent.length===0
+    ?'<div class="empty-state"><div class="icon">🎫</div>暫無票單</div>'
+    :recent.map(([id,t])=>`<div class="ticket-card ${t.priority}" onclick="openTicketDetail('${id}')"><div class="ticket-header"><span class="ticket-id">${id}</span><span class="ticket-title">${t.title}</span><span class="ticket-status status-${t.status}">${statusLabel(t.status)}</span></div><div class="ticket-meta"><span>${t.client}</span><span>${t.assign||'未指派'}</span></div></div>`).join('');
+
+  document.getElementById('dash-attendance').innerHTML=Object.keys(USERS).map(u=>{
+    const rec=attendance[u]&&attendance[u][td];
+    return`<tr><td>${USERS[u].avatar} ${USERS[u].name}</td><td style="font-family:monospace">${rec&&rec.in?rec.in:'--:--'}</td><td style="font-family:monospace">${rec&&rec.out?rec.out:'--:--'}</td><td><span class="badge ${rec&&rec.in?'present':'absent'}">${rec&&rec.in?(rec.out?'已下班':'上班中'):'未打卡'}</span></td></tr>`;
+  }).join('');
+}
+
+function renderAttPunch(){
+  if(!currentUser)return;
+  const rec=attendance[currentUser.username]&&attendance[currentUser.username][today()];
+  const btn=document.getElementById('punchBtn'),st=document.getElementById('punchStatus');
+  if(!rec||!rec.in){btn.className='punch-btn in';btn.textContent='上班打卡';st.textContent='尚未打卡';}
+  else if(!rec.out){btn.className='punch-btn out';btn.textContent='下班打卡';st.textContent=`上班時間：${rec.in}`;}
+  else{btn.className='punch-btn done';btn.textContent='今日已完成';st.textContent=`上班 ${rec.in} ／ 下班 ${rec.out}`;}
+}
+
+function renderAttLog(){
+  if(!currentUser)return;
+  const rows=Object.entries(attendance[currentUser.username]||{}).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,20);
+  document.getElementById('attendanceLog').innerHTML=rows.length===0
+    ?'<tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:20px">暫無紀錄</td></tr>'
+    :rows.map(([date,rec])=>{
+      let hours='-';
+      if(rec.in&&rec.out){const[h1,m1]=rec.in.split(':').map(Number),[h2,m2]=rec.out.split(':').map(Number);hours=((h2*60+m2-h1*60-m1)/60).toFixed(1)+'h';}
+      return`<tr><td>${date}</td><td style="font-family:monospace">${rec.in||'--:--'}</td><td style="font-family:monospace">${rec.out||'--:--'}</td><td>${hours}</td><td><span class="badge ${rec.in?'present':'absent'}">${rec.in?(rec.out?'正常':'上班中'):'缺勤'}</span></td></tr>`;
+    }).join('');
+}
+
+window.doPunch=async function(){
+  const u=currentUser.username,td=today();
+  const rec=(attendance[u]&&attendance[u][td])||{in:null,out:null};
+  if(!rec.in)rec.in=nowTime(); else if(!rec.out)rec.out=nowTime(); else return;
+  await set(ref(db,`attendance/${u}/${td}`),rec);
+};
+
+function renderInventory(){
+  if(!currentUser)return;
+  const iArr=Object.entries(inventory);
+  const isBoss=currentUser.role==='boss';
+  document.getElementById('invGrid').innerHTML=iArr.length===0
+    ?'<div class="empty-state" style="grid-column:1/-1"><div class="icon">📦</div>尚無物料</div>'
+    :iArr.map(([id,i])=>{
+      const pct=Math.min(100,Math.round(i.qty/i.max*100)),low=i.qty<i.min;
+      const barColor=low?'var(--accent2)':i.qty<i.max*.5?'var(--accent)':'var(--accent3)';
+      return`<div class="inv-item"><div class="inv-item-name">${i.name}</div><div class="inv-item-meta">${i.cat}</div><div class="inv-bar-wrap"><div class="inv-bar" style="width:${pct}%;background:${barColor}"></div></div><div class="inv-count"><span class="${low?'low':'ok'}">${low?'⚠ 庫存不足':'庫存正常'}</span><span>${i.qty}/${i.max}</span></div>${isBoss?`<div class="inv-actions"><button class="inv-btn" onclick="adjustInv('${id}',-1)">－1</button><button class="inv-btn" onclick="adjustInv('${id}',1)">＋1</button><button class="inv-btn" onclick="editInv('${id}')">編輯</button><button class="inv-btn del" onclick="deleteInv('${id}')">刪除</button></div>`:''}</div>`;
+    }).join('');
+}
+
+window.adjustInv=async(id,d)=>{const i=inventory[id];if(i)await update(ref(db,`inventory/${id}`),{qty:Math.max(0,i.qty+d)});};
+window.editInv=function(id){
+  editingInvId=id; const i=inventory[id];
+  document.getElementById('invModalTitle').textContent='編輯物料';
+  document.getElementById('invSaveBtn').textContent='儲存';
+  document.getElementById('i-name').value=i.name; document.getElementById('i-cat').value=i.cat;
+  document.getElementById('i-qty').value=i.qty; document.getElementById('i-min').value=i.min; document.getElementById('i-max').value=i.max;
+  document.getElementById('invModal').classList.add('open');
+};
+window.deleteInv=async(id)=>{if(confirm('確定刪除？'))await remove(ref(db,`inventory/${id}`));};
+window.openInvModal=function(){
+  editingInvId=null;
+  document.getElementById('invModalTitle').textContent='新增物料'; document.getElementById('invSaveBtn').textContent='新增';
+  document.getElementById('i-name').value=''; document.getElementById('i-qty').value='0'; document.getElementById('i-min').value='5'; document.getElementById('i-max').value='50';
+  document.getElementById('invModal').classList.add('open');
+};
+window.saveInv=async function(){
+  const name=document.getElementById('i-name').value.trim(); if(!name)return;
+  const data={name,cat:document.getElementById('i-cat').value,qty:parseInt(document.getElementById('i-qty').value)||0,min:parseInt(document.getElementById('i-min').value)||5,max:parseInt(document.getElementById('i-max').value)||50};
+  if(editingInvId)await update(ref(db,`inventory/${editingInvId}`),data); else await set(push(ref(db,'inventory')),data);
+  closeModal('invModal');
+};
+
+window.changeMonth=function(d){calMonth+=d;if(calMonth>11){calMonth=0;calYear++;}if(calMonth<0){calMonth=11;calYear--;}renderCalendar();};
+
+function renderCalendar(){
+  if(!currentUser)return;
+  const months=['一月','二月','三月','四月','五月','六月','七月','八月','九月','十月','十一月','十二月'];
+  document.getElementById('calTitle').textContent=`${calYear} ${months[calMonth]}`;
+  const first=new Date(calYear,calMonth,1).getDay(),days=new Date(calYear,calMonth+1,0).getDate(),prevDays=new Date(calYear,calMonth,0).getDate();
+  const todayStr=today(),eventDates=new Set(Object.values(events).map(e=>e.date));
+  let html=['日','一','二','三','四','五','六'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
+  for(let i=0;i<first;i++)html+=`<div class="cal-day other-month"><span class="cal-day-num">${prevDays-first+i+1}</span></div>`;
+  for(let d=1;d<=days;d++){
+    const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,dow=new Date(calYear,calMonth,d).getDay();
+    html+=`<div class="cal-day ${ds===todayStr?'today':''} ${(dow===0||dow===6)?'holiday':''} ${eventDates.has(ds)?'has-event':''}"><span class="cal-day-num">${d}</span></div>`;
+  }
+  document.getElementById('calGrid').innerHTML=html;
+
+  const sorted=Object.entries(events).sort((a,b)=>a[1].date.localeCompare(b[1].date)||a[1].time.localeCompare(b[1].time));
+  document.getElementById('eventList').innerHTML=sorted.length===0
+    ?'<div class="empty-state"><div class="icon">📅</div>尚無排程</div>'
+    :sorted.map(([id,e])=>`<div class="cal-event-item"><div class="cal-event-dot" style="background:${e.color}"></div><div style="flex:1"><div style="font-size:13px;font-weight:500">${e.title}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${e.date} ${e.time}${e.note?' · '+e.note:''}</div></div><button onclick="deleteEvent('${id}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px">×</button></div>`).join('');
+}
+
+window.openEventModal=function(){document.getElementById('e-date').value=today();document.getElementById('eventModal').classList.add('open');};
+window.saveEvent=async function(){
+  const title=document.getElementById('e-title').value.trim(); if(!title)return;
+  await set(push(ref(db,'events')),{title,date:document.getElementById('e-date').value,time:document.getElementById('e-time').value||'00:00',color:document.getElementById('e-type').value,note:document.getElementById('e-note').value.trim()});
+  closeModal('eventModal'); document.getElementById('e-title').value=''; document.getElementById('e-note').value='';
+};
+window.deleteEvent=async(id)=>await remove(ref(db,`events/${id}`));
+
+window.filterTickets=function(f,el){ticketFilter=f;document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));el.classList.add('active');renderTickets();};
+
+function renderTickets(){
+  if(!currentUser)return;
+  let entries=Object.entries(tickets);
+  if(ticketFilter!=='all')entries=entries.filter(([,t])=>t.status===ticketFilter);
+  entries.sort((a,b)=>b[0].localeCompare(a[0]));
+  document.getElementById('ticketList').innerHTML=entries.length===0
+    ?'<div class="empty-state"><div class="icon">🎫</div>沒有符合的票單</div>'
+    :entries.map(([id,t])=>`<div class="ticket-card ${t.priority}" onclick="openTicketDetail('${id}')"><div class="ticket-header"><span class="ticket-id">${id}</span><span class="ticket-title">${t.title}</span><span class="ticket-status status-${t.status}">${statusLabel(t.status)}</span></div><div class="ticket-meta"><span><span class="priority-dot p-${t.priority}"></span>${{high:'高',medium:'中',low:'低'}[t.priority]}</span><span>${t.client}</span><span>${t.type}</span><span>${t.assign||'未指派'}</span><span>${t.created}</span></div></div>`).join('');
+}
+
+window.openTicketDetail=function(id){
+  editingTicketId=id; const t=tickets[id]; if(!t)return;
+  document.getElementById('td-title').textContent=id+' · '+t.title;
+  const row=(l,v)=>`<tr><td style="padding:6px 0;color:var(--text-muted);width:80px">${l}</td><td style="padding:6px 0">${v}</td></tr>`;
+  document.getElementById('td-content').innerHTML=`<table style="width:100%;font-size:13px;border-collapse:collapse">${row('客戶',t.client)}${row('設備',t.type)}${row('優先',{high:'🔴 高',medium:'🟡 中',low:'🔵 低'}[t.priority])}${row('指派',t.assign||'未指派')}${row('狀態',statusLabel(t.status))}${row('建立',t.created)}</table><div style="margin-top:14px;padding:12px;background:var(--surface2);border-radius:8px;font-size:13px;line-height:1.7">${t.desc||'（無描述）'}</div>`;
+  const btn=document.getElementById('td-progress-btn');
+  btn.style.display=t.status==='done'?'none':''; btn.textContent=t.status==='pending'?'標記進行中':'標記完成';
+  document.getElementById('ticketDetailModal').classList.add('open');
+};
+window.advanceTicket=async function(){
+  const t=tickets[editingTicketId]; if(!t)return;
+  await update(ref(db,`tickets/${editingTicketId}`),{status:t.status==='pending'?'progress':'done'});
+  closeModal('ticketDetailModal');
+};
+window.deleteTicket=async function(){
+  if(!confirm('確定要刪除這張票單？'))return;
+  await remove(ref(db,`tickets/${editingTicketId}`)); closeModal('ticketDetailModal');
+};
+window.openTicketModal=function(){document.getElementById('ticketModal').classList.add('open');};
+window.saveTicket=async function(){
+  const title=document.getElementById('t-title').value.trim(); if(!title)return;
+  await set(push(ref(db,'tickets')),{title,client:document.getElementById('t-client').value,type:document.getElementById('t-type').value,priority:document.getElementById('t-priority').value,status:'pending',assign:document.getElementById('t-assign').value,desc:document.getElementById('t-desc').value.trim(),created:today(),createdBy:currentUser.username});
+  closeModal('ticketModal'); document.getElementById('t-title').value=''; document.getElementById('t-desc').value='';
+};
+
+window.closeModal=id=>document.getElementById(id).classList.remove('open');
+document.querySelectorAll('.modal-overlay').forEach(m=>m.addEventListener('click',e=>{if(e.target===m)m.classList.remove('open');}));
+
+window.onFab=function(){
+  if(currentTab==='tickets'||currentTab==='dashboard')openTicketModal();
+  else if(currentTab==='inventory'&&currentUser.role==='boss')openInvModal();
+  else if(currentTab==='calendar')openEventModal();
+  else if(currentTab==='attendance')doPunch();
+  else openTicketModal();
+};
+
+(async()=>{
+  try{await seedIfEmpty();}catch(e){console.warn(e);}
+  document.getElementById('loadingOverlay').style.display='none';
+  document.getElementById('loginScreen').style.display='flex';
+})();
+</script>
+</body>
+</html>
