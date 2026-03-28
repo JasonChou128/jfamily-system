@@ -171,22 +171,22 @@
       </div>
       <div class="card">
         <div class="card-title"><span>📅 假日管理</span></div>
-        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">管理台灣國定假日與補假，每年由 Google Calendar 自動抓取，可手動補充修正</p>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">依據行政院人事行政總處官方公告管理台灣國定假日，每年更新一次</p>
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
           <select id="holiday-year-sel" onchange="onHolidayYearChange()" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
             <option>2024</option><option>2025</option><option selected>2026</option><option>2027</option><option>2028</option>
           </select>
-          <button id="refresh-holiday-btn" class="btn btn-ghost" onclick="doRefreshHolidays()">從 Google 重新抓取</button>
+          <button id="load-preset-btn" class="btn btn-primary" onclick="loadPresetHolidays()">一鍵載入官方假日</button>
         </div>
         <div style="background:var(--surface2);border-radius:8px;padding:14px;margin-bottom:16px">
-          <div style="font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">手動新增補假</div>
+          <div style="font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">手動新增假日</div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <input type="date" id="holiday-date-input" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
             <input type="text" id="holiday-name-input" placeholder="假日名稱（如：兒童節補假）" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;flex:1;min-width:160px">
-            <button class="btn btn-primary" onclick="addManualHoliday()">新增</button>
+            <button class="btn btn-ghost" onclick="addManualHoliday()">新增</button>
           </div>
         </div>
-        <div id="holiday-manual-list"></div>
+        <div id="holiday-list"></div>
       </div>
       <div class="card">
         <div class="card-title"><span>📊 匯出報表</span></div>
@@ -282,9 +282,9 @@ import { currentUser as _cu, loadSavedSession, loadRemembered, switchLoginTab as
 import { renderDashboard } from './js/dashboard.js';
 import { renderAttPunch, renderAttLog, doPunch as _dp } from './js/attendance.js';
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
-import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenManualHolidays, fetchHolidays } from './js/calendar.js';
+import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenHolidays } from './js/calendar.js';
 import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk } from './js/tickets.js';
-import { renderUserList, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr, initHolidayAdmin, renderHolidayAdmin, addManualHoliday as _amh, deleteHoliday as _dh, doRefreshHolidays as _drh } from './js/admin.js';
+import { renderUserList, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr, initHolidayAdmin, renderHolidayAdmin, loadPresetHolidays as _lph, addManualHoliday as _amh, deleteHoliday as _dh } from './js/admin.js';
 
 let currentUser = null;
 let tickets = {}, inventory = {}, events = {}, attendance = {}, users = {};
@@ -317,7 +317,7 @@ window.selectMonth = m => _sm(m);
 window.goToday = () => _gt();
 window.openEventModal = () => _oem();
 window.saveEvent = () => _se();
-window.deleteEvent = id => _de(id);
+window.deleteEvent = (date, key) => _de(date, key);
 window.filterTickets = (f, el) => { _ft(f, el); renderTickets(tickets); };
 window.openTicketDetail = id => _otd(id, tickets, currentUser);
 window.advanceTicket = () => _at(tickets);
@@ -328,9 +328,9 @@ window.toggleEditUser = uid => _teu(uid);
 window.saveUserEdit = uid => _sue(uid);
 window.toggleAdmin = (uid, role) => _ta(uid, role);
 window.deleteUser = uid => _du(uid);
+window.loadPresetHolidays = () => _lph();
 window.addManualHoliday = () => _amh();
 window.deleteHoliday = (yr, date) => _dh(yr, date);
-window.doRefreshHolidays = () => _drh();
 window.onHolidayYearChange = () => renderHolidayAdmin();
 window.generateReport = () => {
   const report = _gr(users, tickets, inventory, attendance, events);
@@ -383,9 +383,7 @@ function startListeners() {
   });
   onValue(ref(db, 'attendance'), s => { attendance = s.val() || {}; renderAttPunch(currentUser, attendance); renderAttLog(currentUser, attendance); renderDashboard(currentUser, tickets, inventory, attendance, users); });
   onValue(ref(db, 'users'), s => { users = s.val() || {}; renderUserList(currentUser, users); });
-  // Holiday listeners
-  listenManualHolidays();
-  fetchHolidays(new Date().getFullYear());
+  listenHolidays();
   if (currentUser.role === 'admin') initHolidayAdmin();
 }
 
