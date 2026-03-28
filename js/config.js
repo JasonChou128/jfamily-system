@@ -26,7 +26,10 @@ export const TW_HOLIDAYS = {
   '2026-10-09':'國慶補','2026-10-10':'國慶日',
 };
 
-export const today = () => new Date().toISOString().slice(0, 10);
+export const today = () => {
+  const n = new Date();
+  return `${n.getFullYear()}-${String(n.getMonth()+1).padStart(2,'0')}-${String(n.getDate()).padStart(2,'0')}`;
+};
 export const nowTime = () => {
   const n = new Date();
   return n.getHours().toString().padStart(2,'0') + ':' + n.getMinutes().toString().padStart(2,'0');
