@@ -86,16 +86,32 @@ export function renderCalendar(events) {
       const holiday = isOther ? null : holidays[ds];
       const dayEvents = isOther ? [] : (() => {
         const result = [];
-        // New format: events[date][key] = event
-        if (events[ds] && typeof events[ds] === 'object' && !events[ds].title) {
-          Object.values(events[ds]).forEach(e => { if (e && e.title) result.push(e); });
-        }
-        // Old flat format: events[key] = { date, title, ... }
-        Object.values(events).forEach(e => {
-          if (e && typeof e === 'object' && e.title && (e.date === ds || e.start === ds)) {
-            if (!result.find(r => r.title === e.title && r.date === ds)) result.push(e);
+        const dsDate = new Date(ds);
+
+        Object.entries(events).forEach(([key, val]) => {
+          if (!val || typeof val !== 'object') return;
+
+          const checkEvent = (e, _key) => {
+            if (!e || !e.title) return;
+            const eDate = e.date || key;
+            const eDateEnd = e.dateEnd || eDate;
+            // Check if ds falls within event's date range
+            if (ds >= eDate && ds <= eDateEnd) {
+              if (!result.find(r => r.title === e.title && r._startDate === eDate)) {
+                result.push({ ...e, _date: eDate, _key, _startDate: eDate, _isMultiDay: eDate !== eDateEnd, _isContinued: ds > eDate });
+              }
+            }
+          };
+
+          if (val.title) {
+            // Old flat format
+            checkEvent(val, key);
+          } else {
+            // New nested format
+            Object.entries(val).forEach(([subkey, e]) => checkEvent(e, subkey));
           }
         });
+
         return result;
       })();
       const isToday = !isOther && ds === todayStr;
@@ -117,7 +133,8 @@ export function renderCalendar(events) {
         const c = colorMap[e.color] || 'y';
         const epBg = { y: 'rgba(232,193,74,.18)', r: 'rgba(192,57,43,.2)', g: 'rgba(39,174,96,.18)', b: 'rgba(59,130,246,.18)' }[c];
         const epColor = dotColors[c];
-        inner += `<span style="font-size:9px;padding:2px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;display:block;margin-bottom:1px;background:${epBg};color:${epColor}">${e.title || ''}</span>`;
+        const prefix = e._isContinued ? '↳ ' : (e._isMultiDay ? '↦ ' : '');
+        inner += `<span style="font-size:9px;padding:2px 4px;border-radius:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.4;display:block;margin-bottom:1px;background:${epBg};color:${epColor}">${prefix}${e.title || ''}</span>`;
       });
       if (dayEvents.length > 2) inner += `<span style="font-size:9px;color:var(--text-muted);display:block">+${dayEvents.length - 2}</span>`;
 
@@ -285,7 +302,7 @@ export async function saveEvent() {
     equipment: document.getElementById('e-equipment').value || '',
     assign: document.getElementById('e-assign').value || '',
     location: document.getElementById('e-location').value.trim() || '',
-    reminder: document.getElementById('e-reminder').value || '',
+    reminder: '',
     note: document.getElementById('e-note').value.trim(),
   });
   document.getElementById('eventModal').classList.remove('open');
