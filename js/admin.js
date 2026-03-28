@@ -1,7 +1,62 @@
 import { db } from './config.js';
-import { ref, remove, update, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { ref, remove, update, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 import { statusLabel } from './tickets.js';
-import { saveManualHoliday, deleteManualHoliday, refreshHolidays } from './calendar.js';
+
+// ── 台灣官方假日預設資料（依行政院人事行政總處公告）──
+const TW_HOLIDAYS_PRESET = {
+  2025: {
+    '2025-01-01': '元旦',
+    '2025-01-27': '除夕',
+    '2025-01-28': '春節初一',
+    '2025-01-29': '春節初二',
+    '2025-01-30': '春節初三',
+    '2025-01-31': '春節初四',
+    '2025-02-01': '春節初五',
+    '2025-02-28': '和平紀念日',
+    '2025-04-03': '兒童節補假',
+    '2025-04-04': '兒童節',
+    '2025-04-05': '清明節',
+    '2025-05-01': '勞動節',
+    '2025-05-30': '端午節補假',
+    '2025-05-31': '端午節',
+    '2025-10-06': '中秋節',
+    '2025-10-10': '國慶日',
+  },
+  2026: {
+    '2026-01-01': '元旦',
+    '2026-01-28': '除夕',
+    '2026-01-29': '春節初一',
+    '2026-01-30': '春節初二',
+    '2026-01-31': '春節初三',
+    '2026-02-01': '春節初四',
+    '2026-02-02': '春節初五',
+    '2026-02-28': '和平紀念日',
+    '2026-04-03': '兒童節補假',
+    '2026-04-04': '兒童節',
+    '2026-05-01': '勞動節',
+    '2026-06-19': '端午節',
+    '2026-09-25': '中秋節補假',
+    '2026-09-26': '中秋節',
+    '2026-10-09': '國慶日補假',
+    '2026-10-10': '國慶日',
+  },
+  2027: {
+    '2027-01-01': '元旦',
+    '2027-02-05': '除夕',
+    '2027-02-06': '春節初一',
+    '2027-02-07': '春節初二',
+    '2027-02-08': '春節初三',
+    '2027-02-09': '春節初四',
+    '2027-02-28': '和平紀念日',
+    '2027-04-02': '兒童節補假',
+    '2027-04-03': '清明節',
+    '2027-04-04': '兒童節',
+    '2027-05-01': '勞動節',
+    '2027-06-09': '端午節',
+    '2027-10-04': '中秋節',
+    '2027-10-10': '國慶日',
+  }
+};
 
 // ── USER MANAGEMENT ──
 export function renderUserList(currentUser, users) {
@@ -53,11 +108,11 @@ export async function deleteUser(uid) {
 }
 
 // ── HOLIDAY MANAGEMENT ──
-let manualHolidayData = {};
+let currentHolidayData = {};
 
 export function initHolidayAdmin() {
-  onValue(ref(db, 'holidays_manual'), snap => {
-    manualHolidayData = snap.val() || {};
+  onValue(ref(db, 'holidays'), snap => {
+    currentHolidayData = snap.val() || {};
     renderHolidayAdmin();
   });
 }
@@ -66,23 +121,43 @@ export function renderHolidayAdmin() {
   const yearSel = document.getElementById('holiday-year-sel');
   if (!yearSel) return;
   const yr = parseInt(yearSel.value) || new Date().getFullYear();
-  const manuals = manualHolidayData[yr] || {};
-  const container = document.getElementById('holiday-manual-list');
+  const holidays = currentHolidayData[yr] || {};
+  const container = document.getElementById('holiday-list');
   if (!container) return;
 
-  if (Object.keys(manuals).length === 0) {
-    container.innerHTML = '<div style="font-size:13px;color:var(--text-muted);padding:8px 0">無手動補充假日</div>';
+  if (Object.keys(holidays).length === 0) {
+    container.innerHTML = `<div style="font-size:13px;color:var(--text-muted);padding:12px 0">尚無假日資料，請點「一鍵載入官方假日」</div>`;
     return;
   }
 
-  container.innerHTML = Object.entries(manuals)
+  container.innerHTML = Object.entries(holidays)
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([date, name]) => `
       <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
-        <span style="font-family:monospace;font-size:12px;color:var(--accent)">${date}</span>
+        <span style="font-family:monospace;font-size:12px;color:var(--accent);min-width:90px">${date}</span>
         <span style="font-size:13px;flex:1">${name}</span>
         <button class="btn btn-danger btn-sm" onclick="window.deleteHoliday(${yr},'${date}')">刪除</button>
       </div>`).join('');
+}
+
+export async function loadPresetHolidays() {
+  const yearSel = document.getElementById('holiday-year-sel');
+  const yr = parseInt(yearSel.value);
+  const preset = TW_HOLIDAYS_PRESET[yr];
+  if (!preset) {
+    alert(`${yr}年的預設假日資料尚未建立，請手動新增`);
+    return;
+  }
+  if (!confirm(`確定載入${yr}年台灣官方假日？現有資料將被覆蓋。`)) return;
+
+  const btn = document.getElementById('load-preset-btn');
+  btn.textContent = '載入中...';
+  btn.disabled = true;
+
+  await set(ref(db, `holidays/${yr}`), preset);
+
+  btn.textContent = `✓ ${yr}年假日已載入`;
+  setTimeout(() => { btn.textContent = '一鍵載入官方假日'; btn.disabled = false; }, 2000);
 }
 
 export async function addManualHoliday() {
@@ -92,29 +167,16 @@ export async function addManualHoliday() {
   const yr = parseInt(yearSel.value);
   const date = dateInput.value.trim();
   const name = nameInput.value.trim();
-
   if (!date || !name) { alert('請填寫日期和假日名稱'); return; }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { alert('日期格式請用 YYYY-MM-DD'); return; }
-
-  await saveManualHoliday(yr, date, name);
+  await set(ref(db, `holidays/${yr}/${date}`), name);
   dateInput.value = '';
   nameInput.value = '';
 }
 
 export async function deleteHoliday(year, date) {
-  if (confirm(`確定刪除 ${date} 的假日？`)) {
-    await deleteManualHoliday(year, date);
+  if (confirm(`確定刪除 ${date}？`)) {
+    await remove(ref(db, `holidays/${year}/${date}`));
   }
-}
-
-export async function doRefreshHolidays() {
-  const yr = parseInt(document.getElementById('holiday-year-sel').value);
-  const btn = document.getElementById('refresh-holiday-btn');
-  btn.textContent = '更新中...';
-  btn.disabled = true;
-  await refreshHolidays(yr);
-  btn.textContent = '✓ 更新完成';
-  setTimeout(() => { btn.textContent = '從 Google 重新抓取'; btn.disabled = false; }, 2000);
 }
 
 // ── REPORT ──
@@ -123,9 +185,7 @@ export function generateReport(users, tickets, inventory, attendance, events) {
 
   const attSummary = Object.entries(users).map(([uid, u]) => {
     const rec = attendance[uid]?.[td];
-    return `  ${u.name}(${u.email}): ${rec?.in
-      ? `上班${rec.in}${rec.out ? ' 下班' + rec.out : '（上班中）'}`
-      : '未打卡'}`;
+    return `  ${u.name}(${u.email}): ${rec?.in ? `上班${rec.in}${rec.out ? ' 下班' + rec.out : '（上班中）'}` : '未打卡'}`;
   }).join('\n');
 
   const ticketSummary = Object.entries(tickets).map(([id, t]) =>
@@ -136,13 +196,13 @@ export function generateReport(users, tickets, inventory, attendance, events) {
     `  ${i.name}(${i.cat}): ${i.qty}/${i.max} ${i.qty < i.min ? '⚠️ 庫存不足' : ''}`
   ).join('\n');
 
-  const allEvents = Object.values(events).flat().filter(Boolean);
-  const upcoming = allEvents
-    .filter(e => e.date >= td)
-    .sort((a, b) => (a.date || '').localeCompare(b.date || ''))
-    .slice(0, 5)
-    .map(e => `  ${e.date} ${e.time || ''} ${e.title}`)
-    .join('\n');
+  const allEvs = [];
+  Object.entries(events).forEach(([date, evts]) => {
+    if (typeof evts === 'object' && !evts.title) Object.values(evts).forEach(e => { if (e?.date >= td) allEvs.push(e); });
+    else if (evts?.date >= td) allEvs.push(evts);
+  });
+  const upcoming = allEvs.sort((a, b) => (a.date || '').localeCompare(b.date || '')).slice(0, 5)
+    .map(e => `  ${e.date} ${e.time || ''} ${e.title}`).join('\n');
 
   return `售後服務管理系統 · 每日報表
 日期：${td}
