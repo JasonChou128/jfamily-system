@@ -116,13 +116,32 @@
 
     <!-- CALENDAR -->
     <div class="panel" id="panel-calendar">
-      <div class="card">
+      <div class="card" style="position:relative">
         <div class="cal-header">
-          <button class="cal-nav-btn" onclick="changeMonth(-1)">‹</button>
-          <div class="cal-month-title" id="calTitle"></div>
-          <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
+          <div class="cnav">
+            <button class="cal-nav-btn" onclick="changeMonth(-1)">‹</button>
+            <button class="cmonth-btn" onclick="togglePicker()" id="mBtn">載入中...</button>
+            <button class="cal-nav-btn" onclick="changeMonth(1)">›</button>
+          </div>
+          <button class="today-btn" onclick="goToday()">今天</button>
         </div>
-        <div class="cal-grid" id="calGrid"></div>
+        <!-- Year/Month Picker -->
+        <div class="picker" id="picker">
+          <div class="picker-top">
+            <div class="picker-ynav"><button onclick="changePickerYear(-1)">‹</button></div>
+            <div class="picker-year" id="pYr">2026</div>
+            <div class="picker-ynav"><button onclick="changePickerYear(1)">›</button></div>
+          </div>
+          <div class="picker-months" id="pMonths"></div>
+        </div>
+        <table class="cal-table" id="calTable"></table>
+        <div class="cal-legend">
+          <div class="li"><div class="ld" style="background:#d4a820"></div>一般排程</div>
+          <div class="li"><div class="ld" style="background:#e05252"></div>現場維修</div>
+          <div class="li"><div class="ld" style="background:#27ae60"></div>驗機裝機</div>
+          <div class="li"><div class="ld" style="background:#60a5fa"></div>保養計畫</div>
+          <div class="li"><div class="ld" style="background:rgba(192,57,43,.3)"></div>國定假日</div>
+        </div>
       </div>
       <div class="card"><div class="card-title"><span>📌 排程事件</span><button class="btn btn-primary" onclick="openEventModal()" style="font-size:12px;padding:5px 12px">＋ 新增</button></div><div id="eventList"></div></div>
     </div>
@@ -143,6 +162,25 @@
       <div class="card">
         <div class="card-title"><span>👥 帳號管理</span></div>
         <table class="data-table"><thead><tr><th>姓名</th><th>Email</th><th>權限</th><th>操作</th></tr></thead><tbody id="userList"></tbody></table>
+      </div>
+      <div class="card">
+        <div class="card-title"><span>📅 假日管理</span></div>
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">管理台灣國定假日與補假，每年由 Google Calendar 自動抓取，可手動補充修正</p>
+        <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
+          <select id="holiday-year-sel" onchange="onHolidayYearChange()" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <option>2024</option><option>2025</option><option selected>2026</option><option>2027</option><option>2028</option>
+          </select>
+          <button id="refresh-holiday-btn" class="btn btn-ghost" onclick="doRefreshHolidays()">從 Google 重新抓取</button>
+        </div>
+        <div style="background:var(--surface2);border-radius:8px;padding:14px;margin-bottom:16px">
+          <div style="font-size:11px;color:var(--text-muted);letter-spacing:1px;text-transform:uppercase;margin-bottom:10px">手動新增補假</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <input type="date" id="holiday-date-input" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
+            <input type="text" id="holiday-name-input" placeholder="假日名稱（如：兒童節補假）" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px;flex:1;min-width:160px">
+            <button class="btn btn-primary" onclick="addManualHoliday()">新增</button>
+          </div>
+        </div>
+        <div id="holiday-manual-list"></div>
       </div>
       <div class="card">
         <div class="card-title"><span>📊 匯出報表</span></div>
@@ -238,9 +276,9 @@ import { currentUser as _cu, loadSavedSession, loadRemembered, switchLoginTab as
 import { renderDashboard } from './js/dashboard.js';
 import { renderAttPunch, renderAttLog, doPunch as _dp } from './js/attendance.js';
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
-import { calYear, calMonth, changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de } from './js/calendar.js';
+import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenManualHolidays, fetchHolidays } from './js/calendar.js';
 import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk } from './js/tickets.js';
-import { renderUserList, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr } from './js/admin.js';
+import { renderUserList, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr, initHolidayAdmin, renderHolidayAdmin, addManualHoliday as _amh, deleteHoliday as _dh, doRefreshHolidays as _drh } from './js/admin.js';
 
 let currentUser = null;
 let tickets = {}, inventory = {}, events = {}, attendance = {}, users = {};
@@ -266,6 +304,10 @@ window.deleteInv = id => _di(id);
 window.openInvModal = () => _oim();
 window.saveInv = () => _si();
 window.changeMonth = d => { _cm(d); renderCalendar(events); };
+window.togglePicker = () => _tp();
+window.changePickerYear = d => _cpy(d);
+window.selectMonth = m => _sm(m);
+window.goToday = () => _gt();
 window.openEventModal = () => _oem();
 window.saveEvent = () => _se();
 window.deleteEvent = id => _de(id);
@@ -279,6 +321,10 @@ window.toggleEditUser = uid => _teu(uid);
 window.saveUserEdit = uid => _sue(uid);
 window.toggleAdmin = (uid, role) => _ta(uid, role);
 window.deleteUser = uid => _du(uid);
+window.addManualHoliday = () => _amh();
+window.deleteHoliday = (yr, date) => _dh(yr, date);
+window.doRefreshHolidays = () => _drh();
+window.onHolidayYearChange = () => renderHolidayAdmin();
 window.generateReport = () => {
   const report = _gr(users, tickets, inventory, attendance, events);
   document.getElementById('reportContent').textContent = report;
@@ -327,6 +373,10 @@ function startListeners() {
   onValue(ref(db, 'events'), s => { events = s.val() || {}; renderCalendar(events); });
   onValue(ref(db, 'attendance'), s => { attendance = s.val() || {}; renderAttPunch(currentUser, attendance); renderAttLog(currentUser, attendance); renderDashboard(currentUser, tickets, inventory, attendance, users); });
   onValue(ref(db, 'users'), s => { users = s.val() || {}; renderUserList(currentUser, users); });
+  // Holiday listeners
+  listenManualHolidays();
+  fetchHolidays(new Date().getFullYear());
+  if (currentUser.role === 'admin') initHolidayAdmin();
 }
 
 // ── INIT ──
