@@ -182,20 +182,21 @@ let pickerOpen = false;
 export function togglePicker() {
   pickerYr = calYear;
   pickerOpen = !pickerOpen;
-  document.getElementById('picker').classList.toggle('show', pickerOpen);
+  document.getElementById('picker').style.display = pickerOpen ? 'block' : 'none';
   if (pickerOpen) renderPicker();
 }
 
 export function closePicker() {
   pickerOpen = false;
-  document.getElementById('picker').classList.remove('show');
+  document.getElementById('picker').style.display = 'none';
 }
 
 function renderPicker() {
   document.getElementById('pYr').textContent = pickerYr;
-  document.getElementById('pMonths').innerHTML = MONTHS_TW.map((m, i) =>
-    `<div class="pm ${i === calMonth && pickerYr === calYear ? 'active' : ''}" onclick="window.selectMonth(${i})">${m}</div>`
-  ).join('');
+  document.getElementById('pMonths').innerHTML = MONTHS_TW.map((m, i) => {
+    const isActive = i === calMonth && pickerYr === calYear;
+    return `<div onclick="window.selectMonth(${i})" style="background:${isActive ? 'rgba(232,193,74,.15)' : 'var(--surface2)'};border:1px solid ${isActive ? 'var(--accent)' : 'var(--border)'};color:${isActive ? 'var(--accent)' : 'var(--text-muted)'};border-radius:6px;padding:7px 4px;text-align:center;cursor:pointer;font-size:12px;font-weight:${isActive ? '600' : '400'};transition:all .15s">${m}</div>`;
+  }).join('');
 }
 
 export function changePickerYear(delta) {
