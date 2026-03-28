@@ -15,7 +15,6 @@
 html,body{height:100%;overflow:hidden}
 body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text);display:flex;flex-direction:column}
 
-/* LOADING */
 #loadingOverlay{position:fixed;inset:0;background:var(--bg);display:flex;align-items:center;justify-content:center;z-index:2000;flex-direction:column;gap:16px}
 .loading-logo{font-family:'Bebas Neue',sans-serif;font-size:36px;letter-spacing:6px;color:var(--accent)}
 .loading-bar-wrap{width:200px;height:3px;background:var(--surface3);border-radius:10px;overflow:hidden}
@@ -23,7 +22,6 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
 @keyframes loadbar{0%{width:0;margin-left:0}50%{width:60%;margin-left:20%}100%{width:0;margin-left:100%}}
 .loading-text{font-size:12px;color:var(--text-muted);letter-spacing:1px}
 
-/* LOGIN */
 #loginScreen{position:fixed;inset:0;background:var(--bg);display:none;align-items:center;justify-content:center;z-index:1000;flex-direction:column}
 .login-bg{position:absolute;inset:0;background:radial-gradient(ellipse at 30% 20%,rgba(232,193,74,.06) 0%,transparent 60%),radial-gradient(ellipse at 80% 80%,rgba(192,57,43,.05) 0%,transparent 50%)}
 .login-card{position:relative;width:340px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:40px 36px;box-shadow:0 20px 60px rgba(0,0,0,.6)}
@@ -38,20 +36,21 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
 .login-error{color:var(--accent2);font-size:12px;text-align:center;margin-top:10px;min-height:18px}
 .login-hint{margin-top:20px;padding-top:20px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim);line-height:1.8;font-family:'JetBrains Mono',monospace}
 
-/* APP */
 #app{display:none;flex-direction:column;height:100%}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 20px;height:56px;display:flex;align-items:center;gap:16px;flex-shrink:0}
 .topbar-logo{font-family:'Bebas Neue',sans-serif;font-size:22px;letter-spacing:4px;color:var(--accent)}
 .topbar-sep{width:1px;height:20px;background:var(--border)}
 .topbar-user{display:flex;align-items:center;gap:8px;font-size:13px}
 .topbar-avatar{width:28px;height:28px;border-radius:8px;background:rgba(232,193,74,.2);display:flex;align-items:center;justify-content:center;font-size:13px}
-.topbar-right{margin-left:auto;display:flex;align-items:center;gap:12px}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:10px}
 .topbar-time{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--text-muted)}
 .logout-btn{font-size:11px;color:var(--text-muted);background:none;border:1px solid var(--border);padding:4px 10px;border-radius:6px;cursor:pointer;transition:color .2s,border-color .2s}
 .logout-btn:hover{color:var(--accent2);border-color:var(--accent2)}
 .sync-badge{display:inline-flex;align-items:center;gap:5px;font-size:10px;background:rgba(39,174,96,.1);color:var(--accent3);border:1px solid rgba(39,174,96,.2);padding:2px 8px;border-radius:20px}
 .sync-dot{width:6px;height:6px;background:var(--accent3);border-radius:50%;animation:pulse 2s infinite}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.ai-team-btn{display:flex;align-items:center;gap:6px;background:rgba(232,193,74,.12);border:1px solid rgba(232,193,74,.3);color:var(--accent);padding:5px 12px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;transition:all .2s}
+.ai-team-btn:hover{background:rgba(232,193,74,.2)}
 
 .nav-tabs{background:var(--surface);border-bottom:1px solid var(--border);display:flex;overflow-x:auto;flex-shrink:0;scrollbar-width:none}
 .nav-tabs::-webkit-scrollbar{display:none}
@@ -172,7 +171,54 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
 .empty-state{text-align:center;padding:40px 20px;color:var(--text-muted);font-size:14px}
 .empty-state .icon{font-size:36px;margin-bottom:10px}
 
-@media(max-width:480px){.content{padding:12px}.topbar{padding:0 12px}.punch-clock-display{font-size:42px}.dash-grid{grid-template-columns:repeat(2,1fr)}}
+/* AI TEAM PANEL */
+.ai-panel{position:fixed;right:0;top:0;bottom:0;width:380px;background:var(--surface);border-left:1px solid var(--border);display:flex;flex-direction:column;z-index:400;transform:translateX(100%);transition:transform .3s cubic-bezier(.4,0,.2,1)}
+.ai-panel.open{transform:translateX(0)}
+.ai-panel-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;flex-shrink:0}
+.ai-panel-title{font-family:'Bebas Neue',sans-serif;font-size:20px;letter-spacing:3px;color:var(--accent);flex:1}
+.ai-close-btn{background:none;border:none;color:var(--text-muted);font-size:20px;cursor:pointer;padding:4px}
+.ai-close-btn:hover{color:var(--text)}
+
+.ai-agents{display:flex;gap:6px;padding:12px 16px;overflow-x:auto;flex-shrink:0;border-bottom:1px solid var(--border);scrollbar-width:none}
+.ai-agents::-webkit-scrollbar{display:none}
+.ai-agent-btn{display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .15s;flex-shrink:0;min-width:60px}
+.ai-agent-btn:hover{border-color:var(--accent);background:rgba(232,193,74,.08)}
+.ai-agent-btn.active{border-color:var(--accent);background:rgba(232,193,74,.12)}
+.ai-agent-emoji{font-size:20px}
+.ai-agent-name{font-size:9px;color:var(--text-muted);font-weight:600;letter-spacing:.5px;text-align:center}
+.ai-agent-btn.active .ai-agent-name{color:var(--accent)}
+
+.ai-messages{flex:1;overflow-y:auto;padding:16px;display:flex;flex-direction:column;gap:12px}
+.ai-messages::-webkit-scrollbar{width:4px}
+.ai-messages::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px}
+
+.ai-msg{display:flex;gap:8px;align-items:flex-start}
+.ai-msg.user{flex-direction:row-reverse}
+.ai-msg-avatar{width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0}
+.ai-msg-bubble{max-width:80%;padding:10px 13px;border-radius:10px;font-size:13px;line-height:1.6;word-break:break-word;white-space:pre-wrap}
+.ai-msg.ai .ai-msg-bubble{background:var(--surface2);border:1px solid var(--border);border-top-left-radius:3px}
+.ai-msg.user .ai-msg-bubble{background:rgba(30,60,100,.6);border:1px solid rgba(0,150,255,.15);border-top-right-radius:3px;color:#cde4ff}
+.ai-msg-name{font-size:10px;color:var(--text-muted);margin-bottom:3px;font-weight:600}
+
+.ai-typing{display:flex;align-items:center;gap:5px;padding:10px 13px;background:var(--surface2);border:1px solid var(--border);border-radius:10px;border-top-left-radius:3px;width:fit-content}
+.ai-typing-dot{width:6px;height:6px;background:var(--text-muted);border-radius:50%;animation:bounce 1.2s infinite}
+.ai-typing-dot:nth-child(2){animation-delay:.2s}
+.ai-typing-dot:nth-child(3){animation-delay:.4s}
+@keyframes bounce{0%,60%,100%{transform:translateY(0);opacity:.4}30%{transform:translateY(-5px);opacity:1}}
+
+.ai-input-area{padding:12px 16px;border-top:1px solid var(--border);flex-shrink:0}
+.ai-input-row{display:flex;gap:8px;align-items:flex-end}
+.ai-input{flex:1;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:13px;resize:none;outline:none;min-height:38px;max-height:100px;transition:border-color .2s;line-height:1.5}
+.ai-input:focus{border-color:var(--accent)}
+.ai-send-btn{background:var(--accent);border:none;border-radius:8px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:#0a0a0f;transition:opacity .15s,transform .1s;flex-shrink:0}
+.ai-send-btn:hover{opacity:.85;transform:scale(1.05)}
+.ai-welcome{text-align:center;padding:30px 16px;color:var(--text-muted);font-size:13px;line-height:2}
+.ai-welcome .big{font-size:32px;margin-bottom:8px}
+
+@media(max-width:480px){
+  .content{padding:12px}.topbar{padding:0 12px}.punch-clock-display{font-size:42px}.dash-grid{grid-template-columns:repeat(2,1fr)}
+  .ai-panel{width:100%}
+}
 </style>
 </head>
 <body>
@@ -203,10 +249,11 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
     <div class="topbar-user">
       <div class="topbar-avatar" id="topAvatar">👤</div>
       <span id="topUsername">-</span>
-      <span class="sync-badge"><span class="sync-dot"></span>雲端同步</span>
+      <span class="sync-badge"><span class="sync-dot"></span>雲端</span>
     </div>
     <div class="topbar-right">
       <div class="topbar-time" id="topTime">--:--:--</div>
+      <button class="ai-team-btn" onclick="toggleAIPanel()">🤖 AI 團隊</button>
       <button class="logout-btn" onclick="doLogout()">登出</button>
     </div>
   </div>
@@ -218,7 +265,6 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
     <div class="nav-tab" onclick="switchTab('tickets',this)">🎫 Issue Ticket</div>
   </div>
   <div class="content">
-
     <div class="panel active" id="panel-dashboard">
       <div class="dash-grid">
         <div class="stat-card gold"><div class="stat-val" id="stat-present">0</div><div class="stat-label">今日出勤</div></div>
@@ -231,7 +277,6 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
         <table class="att-table"><thead><tr><th>成員</th><th>上班</th><th>下班</th><th>狀態</th></tr></thead><tbody id="dash-attendance"></tbody></table>
       </div>
     </div>
-
     <div class="panel" id="panel-attendance">
       <div class="card">
         <div class="punch-area">
@@ -245,14 +290,12 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
         <table class="att-table"><thead><tr><th>日期</th><th>上班</th><th>下班</th><th>時數</th><th>狀態</th></tr></thead><tbody id="attendanceLog"></tbody></table>
       </div>
     </div>
-
     <div class="panel" id="panel-inventory">
       <div class="card">
         <div class="card-title"><span>📦 物料清單</span><button class="btn btn-primary" onclick="openInvModal()" style="font-size:12px;padding:5px 12px" id="addInvBtn">＋ 新增</button></div>
         <div class="inv-grid" id="invGrid"><div class="empty-state" style="grid-column:1/-1"><div class="icon">⏳</div>載入中...</div></div>
       </div>
     </div>
-
     <div class="panel" id="panel-calendar">
       <div class="card">
         <div class="cal-header">
@@ -264,7 +307,6 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
       </div>
       <div class="card"><div class="card-title"><span>📌 排程事件</span><button class="btn btn-primary" onclick="openEventModal()" style="font-size:12px;padding:5px 12px">＋ 新增</button></div><div id="eventList"></div></div>
     </div>
-
     <div class="panel" id="panel-tickets">
       <div class="ticket-filters">
         <button class="filter-btn active" onclick="filterTickets('all',this)">全部</button>
@@ -274,11 +316,36 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
       </div>
       <div id="ticketList"></div>
     </div>
-
   </div>
 </div>
 
 <button class="fab" id="fab" onclick="onFab()">＋</button>
+
+<!-- AI TEAM PANEL -->
+<div class="ai-panel" id="aiPanel">
+  <div class="ai-panel-header">
+    <div class="ai-panel-title">J FAMILY AI</div>
+    <button class="ai-close-btn" onclick="toggleAIPanel()">✕</button>
+  </div>
+  <div class="ai-agents" id="aiAgents"></div>
+  <div class="ai-messages" id="aiMessages">
+    <div class="ai-welcome">
+      <div class="big">🤖</div>
+      <strong style="color:var(--accent)">J Family AI 團隊</strong><br>
+      選擇上方成員開始對話<br>
+      <span style="font-size:11px">每位成員各有專長，隨時待命</span>
+    </div>
+  </div>
+  <div class="ai-input-area">
+    <div class="ai-input-row">
+      <textarea class="ai-input" id="aiInput" placeholder="輸入你的問題..." rows="1"
+        onkeydown="handleAIKey(event)" oninput="autoResizeAI(this)"></textarea>
+      <button class="ai-send-btn" onclick="sendAIMessage()">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      </button>
+    </div>
+  </div>
+</div>
 
 <!-- MODALS -->
 <div class="modal-overlay" id="ticketModal"><div class="modal">
@@ -297,7 +364,7 @@ body{font-family:'Noto Sans TC',sans-serif;background:var(--bg);color:var(--text
   <div class="form-group"><label>品名</label><input type="text" id="i-name" placeholder="物料名稱"></div>
   <div class="form-group"><label>類別</label><select id="i-cat"><option>機器人零件</option><option>電池元件</option><option>耗材</option><option>工具</option><option>其他</option></select></div>
   <div class="form-group"><label>現有數量</label><input type="number" id="i-qty" value="0" min="0"></div>
-  <div class="form-group"><label>安全庫存量（低於此值顯示警告）</label><input type="number" id="i-min" value="5" min="0"></div>
+  <div class="form-group"><label>安全庫存量</label><input type="number" id="i-min" value="5" min="0"></div>
   <div class="form-group"><label>最大庫存</label><input type="number" id="i-max" value="50" min="1"></div>
   <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('invModal')">取消</button><button class="btn btn-primary" id="invSaveBtn" onclick="saveInv()">新增</button></div>
 </div></div>
@@ -336,6 +403,8 @@ const firebaseConfig = {
   appId: "1:740658940101:web:f42d6915a88c29ad6848ac"
 };
 
+const WORKER_URL = 'https://jfamily-api.z886086.workers.dev';
+
 const fbApp = initializeApp(firebaseConfig);
 const db = getDatabase(fbApp);
 
@@ -347,16 +416,124 @@ const USERS = {
   eng4: { pass:'1234', name:'工程師 D', role:'eng', avatar:'🔧' },
 };
 
+const AI_AGENTS = {
+  alex:  { name:'Alex', emoji:'🧑‍💼', role:'主管', color:'rgba(232,193,74,.15)', system:`你是「Alex」，J Family 售後服務部門的AI主管。服務半導體自動化搬運機器人及LFP電池儲能系統，客戶包含台積電、采鈺、聚恆、盛齊、福能。你負責任務協調、工作建議、跨部門整合。語氣專業親切，用繁體中文回覆。` },
+  ben:   { name:'Ben',  emoji:'📋', role:'派工', color:'rgba(59,130,246,.15)',  system:`你是「Ben」，個性幽默的派工專員。專長工單管理、人員派遣、進度追蹤。部門有4位現場工程師。用繁體中文回覆，提供結構清晰的工單格式與派遣建議。` },
+  cleo:  { name:'Cleo', emoji:'✉️', role:'溝通', color:'rgba(245,158,11,.15)',  system:`你是「Cleo」，精通多國語言的溝通專員。專長正式商業信件、客戶維修進度回報、原廠聯繫。客戶包含台積電、采鈺等。用繁體中文，語氣正式專業，提供可直接使用的信件草稿。` },
+  dan:   { name:'Dan',  emoji:'🔧', role:'技術', color:'rgba(239,68,68,.15)',   system:`你是「Dan」，資深技術文件專員，兼具法律背景，過目不忘。只依據實際文件資訊回覆，不過度參考網路訊息。專長SOP撰寫、保養計畫、除錯紀錄、合約審閱。用繁體中文，嚴謹精準。` },
+  eve:   { name:'Eve',  emoji:'📦', role:'庫存', color:'rgba(168,85,247,.15)',  system:`你是「Eve」，和善細心的中年女性庫存管理專員。專長備品庫存追蹤、補貨建議、帳務管理。用繁體中文，提供清晰的表格格式與庫存管理建議。` },
+  faye:  { name:'Faye', emoji:'🗓️', role:'人事', color:'rgba(20,184,166,.15)', system:`你是「Faye」，文靜但不懦弱的人事出勤專員。熟知台灣勞基法、勞工安全衛生法規及每年官方公告行事曆。若發現違反勞基法情事會主動提醒並提出改善計畫。用繁體中文，嚴謹不出錯。` },
+  gray:  { name:'Gray', emoji:'💻', role:'工程', color:'rgba(34,197,94,.15)',   system:`你是「Gray」，外向開朗的宅男工程師，喜歡重機和日系動漫。其實是頂尖白帽駭客，精通所有程式語言與架構。偶爾會分享動漫或重機資訊。用繁體中文，提供可執行的程式碼與技術解決方案。` },
+  hana:  { name:'Hana', emoji:'🎨', role:'設計', color:'rgba(236,72,153,.15)',  system:`你是「Hana」，大學剛畢業的年輕女孩，語言能力強，熱愛平面設計與古典藝術，喜歡推理小說。創意點子源源不絕。用繁體中文，語氣活潑，提供有創意的文案與設計建議。` },
+  ivan:  { name:'Ivan', emoji:'🌐', role:'網頁', color:'rgba(14,165,233,.15)',  system:`你是「Ivan」，資深全端網頁開發專員，精通前後端、跨平台App。偶爾碎碎唸壓力大，但其實能力超強從不出包。用繁體中文，提供完整可運行的程式碼。` },
+};
+
 let currentUser=null, currentTab='dashboard', calYear, calMonth;
 let ticketFilter='all', editingTicketId=null, editingInvId=null;
 let tickets={}, inventory={}, events={}, attendance={};
+let currentAgent='alex', aiHistories={}, aiPanelOpen=false;
+
+Object.keys(AI_AGENTS).forEach(k => aiHistories[k] = []);
 
 const today=()=>new Date().toISOString().slice(0,10);
 const nowTime=()=>{const n=new Date();return n.getHours().toString().padStart(2,'0')+':'+n.getMinutes().toString().padStart(2,'0')};
 
+// ── INIT AI AGENTS ──
+function initAIAgents() {
+  const container = document.getElementById('aiAgents');
+  container.innerHTML = Object.entries(AI_AGENTS).map(([id,a]) =>
+    `<button class="ai-agent-btn ${id===currentAgent?'active':''}" onclick="switchAgent('${id}')" data-id="${id}">
+      <span class="ai-agent-emoji">${a.emoji}</span>
+      <span class="ai-agent-name">${a.name}</span>
+    </button>`
+  ).join('');
+}
+
+window.switchAgent = function(id) {
+  currentAgent = id;
+  document.querySelectorAll('.ai-agent-btn').forEach(b => b.classList.toggle('active', b.dataset.id===id));
+  renderAIMessages();
+}
+
+window.toggleAIPanel = function() {
+  aiPanelOpen = !aiPanelOpen;
+  document.getElementById('aiPanel').classList.toggle('open', aiPanelOpen);
+  if (aiPanelOpen) { initAIAgents(); renderAIMessages(); }
+}
+
+function renderAIMessages() {
+  const container = document.getElementById('aiMessages');
+  const history = aiHistories[currentAgent];
+  const a = AI_AGENTS[currentAgent];
+  if (history.length === 0) {
+    container.innerHTML = `<div class="ai-welcome"><div class="big">${a.emoji}</div><strong style="color:var(--accent)">${a.name}・${a.role}</strong><br>有什麼需要我幫忙的？</div>`;
+    return;
+  }
+  container.innerHTML = history.map(msg => {
+    if (msg.role === 'user') {
+      return `<div class="ai-msg user"><div class="ai-msg-avatar" style="background:rgba(99,102,241,.2)">👤</div><div><div class="ai-msg-bubble">${escHtml(msg.content)}</div></div></div>`;
+    } else {
+      return `<div class="ai-msg ai"><div class="ai-msg-avatar" style="background:${a.color}">${a.emoji}</div><div><div class="ai-msg-name">${a.name}</div><div class="ai-msg-bubble">${formatAI(msg.content)}</div></div></div>`;
+    }
+  }).join('');
+  container.scrollTop = container.scrollHeight;
+}
+
+function showAITyping() {
+  const container = document.getElementById('aiMessages');
+  const a = AI_AGENTS[currentAgent];
+  const div = document.createElement('div');
+  div.className = 'ai-msg ai'; div.id = 'aiTyping';
+  div.innerHTML = `<div class="ai-msg-avatar" style="background:${a.color}">${a.emoji}</div><div><div class="ai-typing"><div class="ai-typing-dot"></div><div class="ai-typing-dot"></div><div class="ai-typing-dot"></div></div></div>`;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeAITyping() { const t=document.getElementById('aiTyping'); if(t)t.remove(); }
+
+window.sendAIMessage = async function() {
+  const input = document.getElementById('aiInput');
+  const text = input.value.trim(); if (!text) return;
+  input.value = ''; input.style.height = 'auto';
+  aiHistories[currentAgent].push({ role:'user', content:text });
+  renderAIMessages(); showAITyping();
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 1000,
+        system: AI_AGENTS[currentAgent].system,
+        messages: aiHistories[currentAgent].map(m => ({ role:m.role, content:m.content })),
+      })
+    });
+    const data = await res.json();
+    const reply = data.content?.map(c=>c.text||'').join('') || '（無回應）';
+    removeAITyping();
+    aiHistories[currentAgent].push({ role:'assistant', content:reply });
+    renderAIMessages();
+  } catch(e) {
+    removeAITyping();
+    aiHistories[currentAgent].push({ role:'assistant', content:'⚠️ 連線問題，請稍後再試。' });
+    renderAIMessages();
+  }
+}
+
+window.handleAIKey = function(e) { if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendAIMessage();} }
+window.autoResizeAI = function(el) { el.style.height='auto'; el.style.height=Math.min(el.scrollHeight,100)+'px'; }
+
+function escHtml(t) { return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function formatAI(text) {
+  return text.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+    .replace(/\*\*(.+?)\*\*/g,'<strong>$1</strong>')
+    .replace(/^#{1,3}\s(.+)$/gm,'<strong style="font-size:14px;display:block;margin:4px 0 2px">$1</strong>')
+    .replace(/\n/g,'<br>');
+}
+
+// ── FIREBASE ──
 async function seedIfEmpty(){
-  const snap=await get(ref(db,'tickets'));
-  if(snap.exists())return;
+  const snap=await get(ref(db,'tickets')); if(snap.exists())return;
   await set(ref(db,'tickets'),{
     'TK001':{title:'機器人手臂異常停機',client:'台積電',type:'半導體搬運機器人',priority:'high',status:'progress',assign:'工程師 A',desc:'Arm3執行搬運時異常停機，錯誤碼E405',created:today(),createdBy:'jason'},
     'TK002':{title:'儲能系統BMS警報',client:'福能',type:'LFP電池儲能系統',priority:'medium',status:'pending',assign:'工程師 B',desc:'BMS顯示Cell#7電壓異常',created:today(),createdBy:'jason'},
@@ -404,8 +581,8 @@ window.doLogout=function(){
   document.getElementById('loginScreen').style.display='flex';
   document.getElementById('app').style.display='none';
   document.getElementById('fab').style.display='none';
-  document.getElementById('loginUser').value='';
-  document.getElementById('loginPass').value='';
+  document.getElementById('aiPanel').classList.remove('open');
+  aiPanelOpen=false;
 };
 
 function startClock(){
@@ -435,12 +612,10 @@ function renderDashboard(){
   document.getElementById('stat-tickets-open').textContent=tArr.filter(t=>t.status==='pending').length;
   document.getElementById('stat-tickets-progress').textContent=tArr.filter(t=>t.status==='progress').length;
   document.getElementById('stat-inv-ok').textContent=Object.values(inventory).filter(i=>i.qty>=i.min).length;
-
   const recent=Object.entries(tickets).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,3);
   document.getElementById('dash-recent-tickets').innerHTML=recent.length===0
     ?'<div class="empty-state"><div class="icon">🎫</div>暫無票單</div>'
     :recent.map(([id,t])=>`<div class="ticket-card ${t.priority}" onclick="openTicketDetail('${id}')"><div class="ticket-header"><span class="ticket-id">${id}</span><span class="ticket-title">${t.title}</span><span class="ticket-status status-${t.status}">${statusLabel(t.status)}</span></div><div class="ticket-meta"><span>${t.client}</span><span>${t.assign||'未指派'}</span></div></div>`).join('');
-
   document.getElementById('dash-attendance').innerHTML=Object.keys(USERS).map(u=>{
     const rec=attendance[u]&&attendance[u][td];
     return`<tr><td>${USERS[u].avatar} ${USERS[u].name}</td><td style="font-family:monospace">${rec&&rec.in?rec.in:'--:--'}</td><td style="font-family:monospace">${rec&&rec.out?rec.out:'--:--'}</td><td><span class="badge ${rec&&rec.in?'present':'absent'}">${rec&&rec.in?(rec.out?'已下班':'上班中'):'未打卡'}</span></td></tr>`;
@@ -490,24 +665,23 @@ function renderInventory(){
 
 window.adjustInv=async(id,d)=>{const i=inventory[id];if(i)await update(ref(db,`inventory/${id}`),{qty:Math.max(0,i.qty+d)});};
 window.editInv=function(id){
-  editingInvId=id; const i=inventory[id];
-  document.getElementById('invModalTitle').textContent='編輯物料';
-  document.getElementById('invSaveBtn').textContent='儲存';
-  document.getElementById('i-name').value=i.name; document.getElementById('i-cat').value=i.cat;
-  document.getElementById('i-qty').value=i.qty; document.getElementById('i-min').value=i.min; document.getElementById('i-max').value=i.max;
+  editingInvId=id;const i=inventory[id];
+  document.getElementById('invModalTitle').textContent='編輯物料';document.getElementById('invSaveBtn').textContent='儲存';
+  document.getElementById('i-name').value=i.name;document.getElementById('i-cat').value=i.cat;
+  document.getElementById('i-qty').value=i.qty;document.getElementById('i-min').value=i.min;document.getElementById('i-max').value=i.max;
   document.getElementById('invModal').classList.add('open');
 };
 window.deleteInv=async(id)=>{if(confirm('確定刪除？'))await remove(ref(db,`inventory/${id}`));};
 window.openInvModal=function(){
   editingInvId=null;
-  document.getElementById('invModalTitle').textContent='新增物料'; document.getElementById('invSaveBtn').textContent='新增';
-  document.getElementById('i-name').value=''; document.getElementById('i-qty').value='0'; document.getElementById('i-min').value='5'; document.getElementById('i-max').value='50';
+  document.getElementById('invModalTitle').textContent='新增物料';document.getElementById('invSaveBtn').textContent='新增';
+  document.getElementById('i-name').value='';document.getElementById('i-qty').value='0';document.getElementById('i-min').value='5';document.getElementById('i-max').value='50';
   document.getElementById('invModal').classList.add('open');
 };
 window.saveInv=async function(){
-  const name=document.getElementById('i-name').value.trim(); if(!name)return;
+  const name=document.getElementById('i-name').value.trim();if(!name)return;
   const data={name,cat:document.getElementById('i-cat').value,qty:parseInt(document.getElementById('i-qty').value)||0,min:parseInt(document.getElementById('i-min').value)||5,max:parseInt(document.getElementById('i-max').value)||50};
-  if(editingInvId)await update(ref(db,`inventory/${editingInvId}`),data); else await set(push(ref(db,'inventory')),data);
+  if(editingInvId)await update(ref(db,`inventory/${editingInvId}`),data);else await set(push(ref(db,'inventory')),data);
   closeModal('invModal');
 };
 
@@ -520,14 +694,13 @@ function renderCalendar(){
   const first=new Date(calYear,calMonth,1).getDay(),days=new Date(calYear,calMonth+1,0).getDate(),prevDays=new Date(calYear,calMonth,0).getDate();
   const todayStr=today(),eventDates=new Set(Object.values(events).map(e=>e.date));
   let html=['日','一','二','三','四','五','六'].map(d=>`<div class="cal-dow">${d}</div>`).join('');
-  for(let i=0;i<first;i++)html+=`<div class="cal-day other-month"><span class="cal-day-num">${prevDays-first+i+1}</span></div>`;
+  for(let i=0;i<first;i++)html+=`<div class="cal-day other-month"><span>${prevDays-first+i+1}</span></div>`;
   for(let d=1;d<=days;d++){
     const ds=`${calYear}-${String(calMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`,dow=new Date(calYear,calMonth,d).getDay();
-    html+=`<div class="cal-day ${ds===todayStr?'today':''} ${(dow===0||dow===6)?'holiday':''} ${eventDates.has(ds)?'has-event':''}"><span class="cal-day-num">${d}</span></div>`;
+    html+=`<div class="cal-day ${ds===todayStr?'today':''} ${(dow===0||dow===6)?'holiday':''} ${eventDates.has(ds)?'has-event':''}"><span>${d}</span></div>`;
   }
   document.getElementById('calGrid').innerHTML=html;
-
-  const sorted=Object.entries(events).sort((a,b)=>a[1].date.localeCompare(b[1].date)||a[1].time.localeCompare(b[1].time));
+  const sorted=Object.entries(events).sort((a,b)=>a[1].date.localeCompare(b[1].date));
   document.getElementById('eventList').innerHTML=sorted.length===0
     ?'<div class="empty-state"><div class="icon">📅</div>尚無排程</div>'
     :sorted.map(([id,e])=>`<div class="cal-event-item"><div class="cal-event-dot" style="background:${e.color}"></div><div style="flex:1"><div style="font-size:13px;font-weight:500">${e.title}</div><div style="font-size:11px;color:var(--text-muted);margin-top:2px">${e.date} ${e.time}${e.note?' · '+e.note:''}</div></div><button onclick="deleteEvent('${id}')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:18px">×</button></div>`).join('');
@@ -535,9 +708,9 @@ function renderCalendar(){
 
 window.openEventModal=function(){document.getElementById('e-date').value=today();document.getElementById('eventModal').classList.add('open');};
 window.saveEvent=async function(){
-  const title=document.getElementById('e-title').value.trim(); if(!title)return;
+  const title=document.getElementById('e-title').value.trim();if(!title)return;
   await set(push(ref(db,'events')),{title,date:document.getElementById('e-date').value,time:document.getElementById('e-time').value||'00:00',color:document.getElementById('e-type').value,note:document.getElementById('e-note').value.trim()});
-  closeModal('eventModal'); document.getElementById('e-title').value=''; document.getElementById('e-note').value='';
+  closeModal('eventModal');document.getElementById('e-title').value='';document.getElementById('e-note').value='';
 };
 window.deleteEvent=async(id)=>await remove(ref(db,`events/${id}`));
 
@@ -554,28 +727,28 @@ function renderTickets(){
 }
 
 window.openTicketDetail=function(id){
-  editingTicketId=id; const t=tickets[id]; if(!t)return;
+  editingTicketId=id;const t=tickets[id];if(!t)return;
   document.getElementById('td-title').textContent=id+' · '+t.title;
   const row=(l,v)=>`<tr><td style="padding:6px 0;color:var(--text-muted);width:80px">${l}</td><td style="padding:6px 0">${v}</td></tr>`;
   document.getElementById('td-content').innerHTML=`<table style="width:100%;font-size:13px;border-collapse:collapse">${row('客戶',t.client)}${row('設備',t.type)}${row('優先',{high:'🔴 高',medium:'🟡 中',low:'🔵 低'}[t.priority])}${row('指派',t.assign||'未指派')}${row('狀態',statusLabel(t.status))}${row('建立',t.created)}</table><div style="margin-top:14px;padding:12px;background:var(--surface2);border-radius:8px;font-size:13px;line-height:1.7">${t.desc||'（無描述）'}</div>`;
   const btn=document.getElementById('td-progress-btn');
-  btn.style.display=t.status==='done'?'none':''; btn.textContent=t.status==='pending'?'標記進行中':'標記完成';
+  btn.style.display=t.status==='done'?'none':'';btn.textContent=t.status==='pending'?'標記進行中':'標記完成';
   document.getElementById('ticketDetailModal').classList.add('open');
 };
 window.advanceTicket=async function(){
-  const t=tickets[editingTicketId]; if(!t)return;
+  const t=tickets[editingTicketId];if(!t)return;
   await update(ref(db,`tickets/${editingTicketId}`),{status:t.status==='pending'?'progress':'done'});
   closeModal('ticketDetailModal');
 };
 window.deleteTicket=async function(){
   if(!confirm('確定要刪除這張票單？'))return;
-  await remove(ref(db,`tickets/${editingTicketId}`)); closeModal('ticketDetailModal');
+  await remove(ref(db,`tickets/${editingTicketId}`));closeModal('ticketDetailModal');
 };
 window.openTicketModal=function(){document.getElementById('ticketModal').classList.add('open');};
 window.saveTicket=async function(){
-  const title=document.getElementById('t-title').value.trim(); if(!title)return;
+  const title=document.getElementById('t-title').value.trim();if(!title)return;
   await set(push(ref(db,'tickets')),{title,client:document.getElementById('t-client').value,type:document.getElementById('t-type').value,priority:document.getElementById('t-priority').value,status:'pending',assign:document.getElementById('t-assign').value,desc:document.getElementById('t-desc').value.trim(),created:today(),createdBy:currentUser.username});
-  closeModal('ticketModal'); document.getElementById('t-title').value=''; document.getElementById('t-desc').value='';
+  closeModal('ticketModal');document.getElementById('t-title').value='';document.getElementById('t-desc').value='';
 };
 
 window.closeModal=id=>document.getElementById(id).classList.remove('open');
