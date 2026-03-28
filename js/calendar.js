@@ -79,7 +79,7 @@ export async function renderCalendar(events) {
 
   const holidays = getMergedHolidays(calYear);
   const todayStr = today();
-  document.getElementById('calTitle').textContent = `${calYear} ${MONTHS_TW[calMonth]}`;
+  document.getElementById('mBtn').textContent = `${calYear} ${MONTHS_TW[calMonth]}`;
 
   const firstDay = new Date(calYear, calMonth, 1).getDay();
   const totalDays = new Date(calYear, calMonth + 1, 0).getDate();
