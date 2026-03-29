@@ -120,16 +120,16 @@ function renderFieldEventSelect(events, td) {
 }
 
 // ── RENDER LOG TABLE ──
-export function renderAttLog(currentUser, attendance) {
+export function renderAttLog(currentUser, attendance, targetUid) {
   if (!currentUser) return;
   const tbody = document.getElementById('attendanceLog');
   if (!tbody) return;
   const isAdmin = currentUser.role === 'admin';
-  const uid = currentUser.uid;
-  const rows = Object.entries(attendance[uid] || {}).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 30);
+  const uid = (isAdmin && targetUid) ? targetUid : currentUser.uid;
+  const rows = Object.entries(attendance[uid] || {}).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 60);
 
   if (rows.length === 0) {
-    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;color:var(--text-muted);padding:20px">暫無紀錄</td></tr>';
+    tbody.innerHTML = `<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:20px">暫無紀錄</td></tr>`;
     return;
   }
 
@@ -139,7 +139,9 @@ export function renderAttLog(currentUser, attendance) {
     const travel = rec?.travel ? rec.travel + 'h' : '-';
     const travelInfo = rec?.travelClient ? `${rec.travelClient}${rec.travelLocation ? ' · ' + rec.travelLocation : ''}` : '';
     const badge = getStatusBadge(rec);
-    const editBtn = isAdmin ? `<button class="btn btn-ghost btn-sm" onclick="window.openEditAttendance('${uid}','${date}')">修正</button>` : '';
+    const adminBtns = isAdmin ? `
+      <button class="btn btn-ghost btn-sm" onclick="window.openEditAttendance('${uid}','${date}')">修正</button>
+      <button class="btn btn-danger btn-sm" onclick="window.deleteAttendance('${uid}','${date}')">刪除</button>` : '';
     return `<tr>
       <td>${date}</td>
       <td style="font-family:monospace">${rec?.in || '--:--'}</td>
@@ -148,7 +150,7 @@ export function renderAttLog(currentUser, attendance) {
       <td style="color:var(--accent)">${ot}</td>
       <td style="color:#60a5fa;font-size:12px">${travel}${travelInfo ? '<br><span style="color:var(--text-muted)">' + travelInfo + '</span>' : ''}</td>
       <td>${badge}</td>
-      <td>${editBtn}</td>
+      <td style="display:flex;gap:4px;flex-wrap:wrap">${adminBtns}</td>
     </tr>`;
   }).join('');
 }
@@ -259,27 +261,110 @@ export function openEditAttendance(uid, date, attendance, users) {
   const rec = attendance[uid]?.[date] || {};
   const userName = users[uid]?.name || uid;
   document.getElementById('editAttUID').value = uid;
+  document.getElementById('editAttOrigDate').value = date;
   document.getElementById('editAttDate').value = date;
   document.getElementById('editAttIn').value = rec.in || '';
   document.getElementById('editAttOut').value = rec.out || '';
   document.getElementById('editAttNote').value = rec.note || '';
-  document.getElementById('editAttTitle').textContent = `修正打卡：${userName} ${date}`;
+  document.getElementById('editAttTravel').value = rec.travel || '';
+  document.getElementById('editAttTravelClient').value = rec.travelClient || '';
+  document.getElementById('editAttTravelLocation').value = rec.travelLocation || '';
+  // Set leave status
+  const isLeave = rec.leave === true;
+  document.getElementById('editAttIsLeave').checked = isLeave;
+  document.getElementById('editAttLeaveType').value = rec.leaveType || '事假';
+  document.getElementById('editAttLeavePanel').style.display = isLeave ? '' : 'none';
+  document.getElementById('editAttPunchPanel').style.display = isLeave ? 'none' : '';
+  document.getElementById('editAttTitle').textContent = `修正出勤：${userName} ${date}`;
   document.getElementById('editAttModal').classList.add('open');
 }
 
-export async function saveEditAttendance(attendance) {
+export async function saveEditAttendance(attendance, events) {
   const uid = document.getElementById('editAttUID').value;
-  const date = document.getElementById('editAttDate').value;
-  const inTime = document.getElementById('editAttIn').value;
-  const outTime = document.getElementById('editAttOut').value;
+  const origDate = document.getElementById('editAttOrigDate').value;
+  const newDate = document.getElementById('editAttDate').value;
+  const isLeave = document.getElementById('editAttIsLeave').checked;
   const note = document.getElementById('editAttNote').value.trim();
-  const existing = attendance[uid]?.[date] || {};
-  await set(ref(db, `attendance/${uid}/${date}`), {
-    ...existing,
-    in: inTime || null,
-    out: outTime || null,
-    note: note || existing.note || '',
-    corrected: true,
-  });
+  const existing = attendance[uid]?.[origDate] || {};
+
+  let newRec = {};
+  if (isLeave) {
+    newRec = {
+      leave: true,
+      leaveType: document.getElementById('editAttLeaveType').value,
+      note, corrected: true, appliedAt: nowTime()
+    };
+  } else {
+    const inTime = document.getElementById('editAttIn').value;
+    const outTime = document.getElementById('editAttOut').value;
+    const travel = document.getElementById('editAttTravel').value;
+    const travelClient = document.getElementById('editAttTravelClient').value.trim();
+    const travelLocation = document.getElementById('editAttTravelLocation').value.trim();
+    newRec = {
+      ...existing,
+      in: inTime || null,
+      out: outTime || null,
+      note, corrected: true,
+      ...(travel ? { travel: parseFloat(travel) } : {}),
+      ...(travelClient ? { travelClient } : {}),
+      ...(travelLocation ? { travelLocation } : {}),
+    };
+    // Remove leave flags if switching from leave to punch
+    delete newRec.leave; delete newRec.leaveType; delete newRec.appliedAt;
+  }
+
+  // If date changed, delete old record and create new one
+  if (origDate !== newDate) {
+    await remove(ref(db, `attendance/${uid}/${origDate}`));
+    // If original was leave, clean calendar
+    if (existing.leave) await cleanLeaveFromCalendar(uid, origDate, events);
+  }
+  await set(ref(db, `attendance/${uid}/${newDate}`), newRec);
+
+  // If new record is leave, add to calendar
+  if (isLeave && (origDate !== newDate || !existing.leave)) {
+    const { push: fbPush } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+    const calRef = fbPush(ref(db, `events/${newDate}`));
+    await set(calRef, {
+      id: calRef.key, title: `請假 (${newRec.leaveType})`,
+      date: newDate, dateEnd: newDate, color: '#8b5cf6', type: 'leave',
+    });
+  }
+
   document.getElementById('editAttModal').classList.remove('open');
+}
+
+async function cleanLeaveFromCalendar(uid, date, events) {
+  // Remove leave events on that date
+  const dateEvts = events[date];
+  if (!dateEvts) return;
+  for (const [key, e] of Object.entries(dateEvts)) {
+    if (e && e.type === 'leave') {
+      await remove(ref(db, `events/${date}/${key}`));
+    }
+  }
+}
+
+// ── ADMIN: DELETE ATTENDANCE ──
+export async function deleteAttendance(uid, date, attendance, events) {
+  if (!confirm(`確定刪除 ${date} 的出勤紀錄？`)) return;
+  const rec = attendance[uid]?.[date];
+  // If leave record, also clean calendar
+  if (rec?.leave) await cleanLeaveFromCalendar(uid, date, events);
+  await remove(ref(db, `attendance/${uid}/${date}`));
+}
+
+// ── ADMIN: ADD NEW ATTENDANCE (補卡) ──
+export async function addAttendance() {
+  const uid = document.getElementById('addAttUID').value;
+  const date = document.getElementById('addAttDate').value;
+  const inTime = document.getElementById('addAttIn').value;
+  const outTime = document.getElementById('addAttOut').value;
+  const note = document.getElementById('addAttNote').value.trim();
+  if (!uid || !date) { alert('請選擇成員和日期'); return; }
+  await set(ref(db, `attendance/${uid}/${date}`), {
+    in: inTime || null, out: outTime || null,
+    note: note || '管理者補卡', corrected: true,
+  });
+  document.getElementById('addAttModal').classList.remove('open');
 }
