@@ -97,12 +97,41 @@
         <div class="punch-area">
           <div class="punch-clock-display" id="punchTime">00:00:00</div>
           <div class="punch-date" id="punchDate"></div>
-          <button class="punch-btn in" id="punchBtn" onclick="doPunch()">上班打卡</button>
+          <div style="display:flex;gap:12px;justify-content:center;flex-wrap:wrap;margin-bottom:12px">
+            <button class="punch-btn in" id="punchBtn" onclick="doPunch()">上班打卡</button>
+            <button id="fieldPunchBtn" onclick="toggleFieldPanel()" style="display:none;padding:12px 24px;border:1px solid var(--accent);background:rgba(232,193,74,.1);color:var(--accent);border-radius:12px;font-size:14px;font-weight:600;cursor:pointer">🚗 外勤記錄</button>
+          </div>
           <div class="punch-status" id="punchStatus">尚未打卡</div>
         </div>
+
+        <!-- Field Work Panel -->
+        <div id="fieldWorkPanel" style="display:none;background:var(--surface2);border-radius:10px;padding:16px;margin:0 20px 16px">
+          <div style="font-size:12px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:12px">🚗 外勤記錄</div>
+          <div class="form-group"><label>連結今日行程</label><select id="fieldEventSelect"><option value="">－ 選擇今日行程</option></select></div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <div class="form-group"><label>客戶名稱</label><input type="text" id="travelClient" placeholder="如：台積電"></div>
+            <div class="form-group"><label>地點</label><input type="text" id="travelLocation" placeholder="如：Fab14廠區"></div>
+          </div>
+          <div class="form-group"><label>交通時數（不計入工時）</label><input type="number" id="travelHours" placeholder="例：1.5" step="0.5" min="0"></div>
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="btn btn-ghost" onclick="toggleFieldPanel()">取消</button>
+            <button class="btn btn-primary" onclick="doFieldPunch()">儲存外勤記錄</button>
+          </div>
+        </div>
+
+        <!-- Leave Button -->
+        <div style="text-align:center;padding-bottom:16px">
+          <button onclick="openLeaveModal()" style="background:none;border:1px solid var(--border);color:var(--text-muted);border-radius:8px;padding:6px 16px;cursor:pointer;font-size:12px;transition:all .15s" onmouseover="this.style.borderColor='#8b5cf6';this.style.color='#8b5cf6'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-muted)'">📋 申請請假</button>
+        </div>
       </div>
+
       <div class="card"><div class="card-title"><span>📋 本月出勤紀錄</span></div>
-        <table class="data-table"><thead><tr><th>日期</th><th>上班</th><th>下班</th><th>時數</th><th>狀態</th></tr></thead><tbody id="attendanceLog"></tbody></table>
+        <div style="overflow-x:auto">
+          <table class="data-table">
+            <thead><tr><th>日期</th><th>上班</th><th>下班</th><th>工時</th><th>加班</th><th>交通</th><th>狀態</th><th>操作</th></tr></thead>
+            <tbody id="attendanceLog"></tbody>
+          </table>
+        </div>
       </div>
     </div>
 
@@ -280,7 +309,44 @@
   <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('eventModal')">取消</button><button class="btn btn-primary" onclick="saveEvent()">新增</button></div>
 </div></div>
 
-<!-- TICKET DETAIL MODAL -->
+<!-- LEAVE MODAL -->
+<div class="modal-overlay" id="leaveModal"><div class="modal">
+  <div class="modal-title">📋 申請請假</div>
+  <div class="form-group"><label>假別</label>
+    <select id="leaveType">
+      <option>事假</option><option>年假</option><option>公假</option><option>補修</option>
+    </select>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="form-group"><label>開始日期</label><input type="date" id="leaveDate"></div>
+    <div class="form-group"><label>結束日期</label><input type="date" id="leaveDateEnd"></div>
+  </div>
+  <div class="form-group"><label>備註</label><textarea id="leaveNote" placeholder="請假原因（選填）" style="min-height:80px"></textarea></div>
+  <div style="font-size:12px;color:var(--accent3);padding:8px;background:rgba(39,174,96,.08);border-radius:6px;margin-bottom:8px">✅ 請假後將自動同步至行事曆</div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('leaveModal')">取消</button>
+    <button class="btn btn-primary" onclick="submitLeave()">送出申請</button>
+  </div>
+</div></div>
+
+<!-- EDIT ATTENDANCE MODAL -->
+<div class="modal-overlay" id="editAttModal"><div class="modal">
+  <div class="modal-title" id="editAttTitle">修正打卡紀錄</div>
+  <input type="hidden" id="editAttUID">
+  <input type="hidden" id="editAttDate">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="form-group"><label>上班時間</label><input type="time" id="editAttIn"></div>
+    <div class="form-group"><label>下班時間</label><input type="time" id="editAttOut"></div>
+  </div>
+  <div class="form-group"><label>修正原因</label><input type="text" id="editAttNote" placeholder="說明修正原因"></div>
+  <div style="font-size:12px;color:var(--text-muted);padding:8px;background:var(--surface2);border-radius:6px;margin-bottom:8px">⚠️ 此修正將記錄管理者操作，請確認後送出</div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('editAttModal')">取消</button>
+    <button class="btn btn-primary" onclick="saveEditAttendance()">確認修正</button>
+  </div>
+</div></div>
+
+
 <div class="modal-overlay" id="ticketDetailModal"><div class="modal">
   <div class="modal-title" id="td-title">票單詳情</div>
   <div id="td-content"></div>
@@ -296,7 +362,7 @@ import { db, today, nowTime } from './js/config.js';
 import { ref, set, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 import { currentUser as _cu, loadSavedSession, loadRemembered, switchLoginTab as _slt, doLogin as _dl, doRegister as _dr, doLogout as _dlo, openProfile as _op, saveProfile as _sp, seedAdmin } from './js/auth.js';
 import { renderDashboard } from './js/dashboard.js';
-import { renderAttPunch, renderAttLog, doPunch as _dp } from './js/attendance.js';
+import { renderAttPunch, renderAttLog, doPunch as _dp, doFieldPunch as _dfp, submitLeave as _sl, openEditAttendance as _oea, saveEditAttendance as _sea, renderAdminAttLog } from './js/attendance.js';
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
 import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenHolidays } from './js/calendar.js';
 import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk } from './js/tickets.js';
@@ -321,6 +387,20 @@ window.switchTab = (tab, el) => {
 };
 window.closeModal = id => document.getElementById(id).classList.remove('open');
 window.doPunch = () => _dp(currentUser, attendance);
+window.doFieldPunch = () => _dfp(currentUser);
+window.toggleFieldPanel = () => {
+  const p = document.getElementById('fieldWorkPanel');
+  p.style.display = p.style.display === 'none' ? '' : 'none';
+};
+window.openLeaveModal = () => {
+  const td = today();
+  document.getElementById('leaveDate').value = td;
+  document.getElementById('leaveDateEnd').value = td;
+  document.getElementById('leaveModal').classList.add('open');
+};
+window.submitLeave = () => _sl(currentUser, events);
+window.openEditAttendance = (uid, date) => _oea(uid, date, attendance, users);
+window.saveEditAttendance = () => _sea(attendance);
 window.adjustInv = (id, d) => _ai(id, d, inventory);
 window.editInv = id => _ei(id, inventory);
 window.deleteInv = id => _di(id);
@@ -397,7 +477,7 @@ function startListeners() {
     events = s.val() || {};
     if (currentTab === 'calendar') renderCalendar(events);
   });
-  onValue(ref(db, 'attendance'), s => { attendance = s.val() || {}; renderAttPunch(currentUser, attendance); renderAttLog(currentUser, attendance); renderDashboard(currentUser, tickets, inventory, attendance, users); });
+  onValue(ref(db, 'attendance'), s => { attendance = s.val() || {}; renderAttPunch(currentUser, attendance, events); renderAttLog(currentUser, attendance); renderDashboard(currentUser, tickets, inventory, attendance, users); });
   onValue(ref(db, 'users'), s => { users = s.val() || {}; renderUserList(currentUser, users); });
   listenHolidays();
   if (currentUser.role === 'admin') initHolidayAdmin();
