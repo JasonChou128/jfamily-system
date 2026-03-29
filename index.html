@@ -377,8 +377,8 @@ window.switchLoginTab = t => _slt(t);
 window.doLogin = () => _dl(onLoginSuccess);
 window.doRegister = () => _dr();
 window.doLogout = () => { _dlo(); currentUser = null; };
-window.openProfile = () => _op();
-window.saveProfile = () => _sp();
+window.openProfile = () => _op(currentUser);
+window.saveProfile = () => _sp(currentUser, (updated) => { currentUser = updated; });
 window.switchTab = (tab, el) => {
   currentTab = tab;
   document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active')); el.classList.add('active');
