@@ -268,3 +268,8 @@ body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: va
 .cal-legend{display:flex;gap:14px;margin-top:14px;flex-wrap:wrap;padding-top:12px;border-top:1px solid var(--surface2)}
 .li{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--text-muted)}
 .ld{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+
+/* ── ATTENDANCE ENHANCEMENTS ── */
+.badge.late{background:rgba(192,57,43,.2);color:#e05252}
+.badge.early{background:rgba(245,158,11,.2);color:#f59e0b}
+.badge.leave{background:rgba(139,92,246,.2);color:#8b5cf6}
