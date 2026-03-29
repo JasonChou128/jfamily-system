@@ -4,7 +4,7 @@ import { statusLabel } from './tickets.js';
 
 export function renderDashboard(currentUser, tickets, inventory, attendance, users) {
   if (!currentUser) return;
-  const td = new Date().toISOString().slice(0, 10);
+  const _n = new Date(); const td = `${_n.getFullYear()}-${String(_n.getMonth()+1).padStart(2,'0')}-${String(_n.getDate()).padStart(2,'0')}`;
   let present = 0;
   Object.keys(users).forEach(uid => { if (attendance[uid]?.[td]?.in) present++; });
 
