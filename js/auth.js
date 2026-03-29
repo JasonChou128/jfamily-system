@@ -113,10 +113,10 @@ export function doLogout() {
 }
 
 // ── PROFILE MODAL ──
-export function openProfile() {
-  if (!currentUser) return;
-  document.getElementById('profileName').value = currentUser.name || '';
-  document.getElementById('profileEmail').value = currentUser.email || '';
+export function openProfile(user) {
+  if (!user) return;
+  document.getElementById('profileName').value = user.name || '';
+  document.getElementById('profileEmail').value = user.email || '';
   document.getElementById('profilePass').value = '';
   document.getElementById('profilePass2').value = '';
   document.getElementById('profileError').textContent = '';
@@ -124,7 +124,7 @@ export function openProfile() {
   document.getElementById('profileModal').classList.add('open');
 }
 
-export async function saveProfile() {
+export async function saveProfile(currentUser, onSuccess) {
   const name = document.getElementById('profileName').value.trim();
   const email = document.getElementById('profileEmail').value.trim().toLowerCase();
   const pass = document.getElementById('profilePass').value;
@@ -139,10 +139,11 @@ export async function saveProfile() {
     const updates = { name, email };
     if (pass) updates.pass = pass;
     await update(ref(db, `users/${currentUser.uid}`), updates);
-    currentUser = { ...currentUser, ...updates };
-    saveSession(currentUser, !!localStorage.getItem(SESSION_KEY));
+    const updatedUser = { ...currentUser, ...updates };
+    saveSession(updatedUser, !!localStorage.getItem(SESSION_KEY));
     document.getElementById('topUsername').textContent = name;
     document.getElementById('profileSuccess').textContent = '資料更新成功！';
+    if (onSuccess) onSuccess(updatedUser);
   } catch (e) { document.getElementById('profileError').textContent = '更新失敗：' + e.message; }
 }
 
