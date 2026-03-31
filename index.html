@@ -125,7 +125,13 @@
         </div>
       </div>
 
-      <div class="card"><div class="card-title"><span>📋 本月出勤紀錄</span></div>
+      <div class="card"><div class="card-title">
+        <span>📋 出勤紀錄</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select id="attMemberSel" onchange="switchAttMember()" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 10px;color:var(--text);font-size:12px"></select>
+          <button id="addAttBtn" onclick="openAddAtt()" style="display:none" class="btn btn-primary btn-sm">＋ 補卡</button>
+        </div>
+      </div>
         <div style="overflow-x:auto">
           <table class="data-table">
             <thead><tr><th>日期</th><th>上班</th><th>下班</th><th>工時</th><th>加班</th><th>交通</th><th>狀態</th><th>操作</th></tr></thead>
@@ -262,6 +268,10 @@
   <div class="form-group"><label>設備類型</label><select id="t-type"><option>半導體搬運機器人</option><option>LFP電池儲能系統</option><option>其他</option></select></div>
   <div class="form-group"><label>優先等級</label><select id="t-priority"><option value="high">🔴 高</option><option value="medium" selected>🟡 中</option><option value="low">🔵 低</option></select></div>
   <div class="form-group"><label>指派給</label><select id="t-assign"><option value="">未指派</option></select></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="form-group"><label>開始日期</label><input type="date" id="t-startDate"></div>
+    <div class="form-group"><label>截止日期</label><input type="date" id="t-dueDate"></div>
+  </div>
   <div class="form-group"><label>問題描述</label><textarea id="t-desc" placeholder="詳細說明問題內容..."></textarea></div>
   <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('ticketModal')">取消</button><button class="btn btn-primary" onclick="saveTicket()">建立票單</button></div>
 </div></div>
@@ -331,29 +341,90 @@
 
 <!-- EDIT ATTENDANCE MODAL -->
 <div class="modal-overlay" id="editAttModal"><div class="modal">
-  <div class="modal-title" id="editAttTitle">修正打卡紀錄</div>
+  <div class="modal-title" id="editAttTitle">修正出勤紀錄</div>
   <input type="hidden" id="editAttUID">
-  <input type="hidden" id="editAttDate">
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-    <div class="form-group"><label>上班時間</label><input type="time" id="editAttIn"></div>
-    <div class="form-group"><label>下班時間</label><input type="time" id="editAttOut"></div>
+  <input type="hidden" id="editAttOrigDate">
+  <div class="form-group"><label>日期</label><input type="date" id="editAttDate"></div>
+  <div class="form-group" style="display:flex;align-items:center;gap:10px;padding:10px;background:var(--surface2);border-radius:8px">
+    <input type="checkbox" id="editAttIsLeave" onchange="toggleEditLeavePanel()" style="width:16px;height:16px;accent-color:var(--accent)">
+    <label for="editAttIsLeave" style="font-size:13px;cursor:pointer">標記為請假</label>
   </div>
-  <div class="form-group"><label>修正原因</label><input type="text" id="editAttNote" placeholder="說明修正原因"></div>
-  <div style="font-size:12px;color:var(--text-muted);padding:8px;background:var(--surface2);border-radius:6px;margin-bottom:8px">⚠️ 此修正將記錄管理者操作，請確認後送出</div>
+  <div id="editAttLeavePanel" style="display:none">
+    <div class="form-group"><label>假別</label>
+      <select id="editAttLeaveType">
+        <option>事假</option><option>年假</option><option>公假</option><option>補修</option>
+      </select>
+    </div>
+  </div>
+  <div id="editAttPunchPanel">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+      <div class="form-group"><label>上班時間</label><input type="time" id="editAttIn"></div>
+      <div class="form-group"><label>下班時間</label><input type="time" id="editAttOut"></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <div class="form-group"><label>交通時數</label><input type="number" id="editAttTravel" placeholder="0" step="0.5" min="0"></div>
+      <div class="form-group"><label>外勤客戶</label><input type="text" id="editAttTravelClient" placeholder="客戶名稱"></div>
+      <div class="form-group"><label>外勤地點</label><input type="text" id="editAttTravelLocation" placeholder="地點"></div>
+    </div>
+  </div>
+  <div class="form-group"><label>修正備註</label><input type="text" id="editAttNote" placeholder="說明修正原因（選填）"></div>
+  <div style="font-size:12px;color:var(--text-muted);padding:8px;background:var(--surface2);border-radius:6px;margin-bottom:8px">⚠️ 此修正將記錄管理者操作</div>
   <div class="modal-actions">
     <button class="btn btn-ghost" onclick="closeModal('editAttModal')">取消</button>
     <button class="btn btn-primary" onclick="saveEditAttendance()">確認修正</button>
   </div>
 </div></div>
 
-
-<div class="modal-overlay" id="ticketDetailModal"><div class="modal">
-  <div class="modal-title" id="td-title">票單詳情</div>
-  <div id="td-content"></div>
+<!-- ADD ATTENDANCE MODAL (補卡) -->
+<div class="modal-overlay" id="addAttModal"><div class="modal">
+  <div class="modal-title">➕ 補卡</div>
+  <div class="form-group"><label>成員</label><select id="addAttUID"><option value="">選擇成員</option></select></div>
+  <div class="form-group"><label>日期</label><input type="date" id="addAttDate"></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="form-group"><label>上班時間</label><input type="time" id="addAttIn"></div>
+    <div class="form-group"><label>下班時間</label><input type="time" id="addAttOut"></div>
+  </div>
+  <div class="form-group"><label>備註</label><input type="text" id="addAttNote" placeholder="補卡原因"></div>
   <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('addAttModal')">取消</button>
+    <button class="btn btn-primary" onclick="addAttendance()">補卡</button>
+  </div>
+</div></div>
+
+
+<!-- TICKET DETAIL MODAL -->
+<div class="modal-overlay" id="ticketDetailModal"><div class="modal" style="max-width:580px">
+  <!-- Header -->
+  <div style="margin-bottom:14px">
+    <div style="font-family:monospace;font-size:12px;color:var(--text-muted);margin-bottom:5px" id="td-num">#000001</div>
+    <div style="font-size:16px;font-weight:600;margin-bottom:10px;line-height:1.4" id="td-title"></div>
+    <div style="display:flex;gap:7px;flex-wrap:wrap;margin-bottom:12px" id="td-badges"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px" id="td-meta"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px" id="td-actions"></div>
+  </div>
+  <!-- Description -->
+  <div style="background:var(--surface2);border-radius:8px;padding:12px 14px;margin-bottom:12px">
+    <div style="font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted);margin-bottom:8px">📝 問題描述</div>
+    <div style="font-size:13px;color:#c0c0d0;line-height:1.8" id="td-desc"></div>
+  </div>
+  <!-- Comments -->
+  <div style="background:var(--surface2);border-radius:8px;margin-bottom:12px;overflow:hidden">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)">💬 討論區</div>
+    <div style="padding:12px 14px" id="td-comments-list"></div>
+    <div style="padding:10px 14px;border-top:1px solid var(--border)">
+      <textarea id="td-comment-input" placeholder="新增留言或更新進度..." style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:9px 12px;color:var(--text);font-family:'Noto Sans TC',sans-serif;font-size:13px;resize:vertical;min-height:72px;outline:none"></textarea>
+      <div style="display:flex;justify-content:flex-end;margin-top:7px">
+        <button class="btn btn-primary" style="font-size:12px;padding:6px 16px" onclick="addComment()">送出留言</button>
+      </div>
+    </div>
+  </div>
+  <!-- History -->
+  <div style="background:var(--surface2);border-radius:8px;margin-bottom:14px;overflow:hidden">
+    <div style="padding:10px 14px;border-bottom:1px solid var(--border);font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--text-muted)">🕐 變更記錄</div>
+    <div style="padding:10px 14px" id="td-history-list"></div>
+  </div>
+  <div style="display:flex;justify-content:flex-end">
     <button class="btn btn-ghost" onclick="closeModal('ticketDetailModal')">關閉</button>
-    <button class="btn btn-primary" id="td-progress-btn" onclick="advanceTicket()">推進狀態</button>
-    <button class="btn btn-danger" id="td-delete-btn" onclick="deleteTicket()" style="display:none">刪除</button>
   </div>
 </div></div>
 
@@ -362,10 +433,10 @@ import { db, today, nowTime } from './js/config.js';
 import { ref, set, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 import { currentUser as _cu, loadSavedSession, loadRemembered, switchLoginTab as _slt, doLogin as _dl, doRegister as _dr, doLogout as _dlo, openProfile as _op, saveProfile as _sp, seedAdmin } from './js/auth.js';
 import { renderDashboard } from './js/dashboard.js';
-import { renderAttPunch, renderAttLog, doPunch as _dp, doFieldPunch as _dfp, submitLeave as _sl, openEditAttendance as _oea, saveEditAttendance as _sea, renderAdminAttLog } from './js/attendance.js';
+import { renderAttPunch, renderAttLog, doPunch as _dp, doFieldPunch as _dfp, submitLeave as _sl, openEditAttendance as _oea, saveEditAttendance as _sea, deleteAttendance as _da, addAttendance as _aa, renderAdminAttLog } from './js/attendance.js';
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
 import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenHolidays } from './js/calendar.js';
-import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk } from './js/tickets.js';
+import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk, addComment as _ac, linkTicketToCalendar as _ltc } from './js/tickets.js';
 import { renderUserList, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr, initHolidayAdmin, renderHolidayAdmin, loadPresetHolidays as _lph, addManualHoliday as _amh, deleteHoliday as _dh } from './js/admin.js';
 
 let currentUser = null;
@@ -400,7 +471,26 @@ window.openLeaveModal = () => {
 };
 window.submitLeave = () => _sl(currentUser, events);
 window.openEditAttendance = (uid, date) => _oea(uid, date, attendance, users);
-window.saveEditAttendance = () => _sea(attendance);
+window.saveEditAttendance = () => _sea(attendance, events);
+window.deleteAttendance = (uid, date) => _da(uid, date, attendance, events);
+window.toggleEditLeavePanel = () => {
+  const isLeave = document.getElementById('editAttIsLeave').checked;
+  document.getElementById('editAttLeavePanel').style.display = isLeave ? '' : 'none';
+  document.getElementById('editAttPunchPanel').style.display = isLeave ? 'none' : '';
+};
+window.openAddAtt = () => {
+  // Populate member dropdown
+  const sel = document.getElementById('addAttUID');
+  sel.innerHTML = '<option value="">選擇成員</option>' +
+    Object.entries(users).map(([uid, u]) => `<option value="${uid}">${u.name}</option>`).join('');
+  document.getElementById('addAttDate').value = today();
+  document.getElementById('addAttModal').classList.add('open');
+};
+window.addAttendance = () => _aa();
+window.switchAttMember = () => {
+  const uid = document.getElementById('attMemberSel')?.value;
+  renderAttLog(currentUser, attendance, uid);
+};
 window.adjustInv = (id, d) => _ai(id, d, inventory);
 window.editInv = id => _ei(id, inventory);
 window.deleteInv = id => _di(id);
@@ -416,10 +506,12 @@ window.saveEvent = () => _se();
 window.deleteEvent = (date, key) => _de(date, key);
 window.filterTickets = (f, el) => { _ft(f, el); renderTickets(tickets); };
 window.openTicketDetail = id => _otd(id, tickets, currentUser);
-window.advanceTicket = () => _at(tickets);
+window.advanceTicket = () => _at(tickets, currentUser);
 window.deleteTicket = () => _dtk();
 window.openTicketModal = () => _otm(users);
 window.saveTicket = () => _stk(currentUser);
+window.addComment = () => _ac(currentUser);
+window.linkTicketToCalendar = id => _ltc(id, tickets);
 window.toggleEditUser = uid => _teu(uid);
 window.saveUserEdit = uid => _sue(uid);
 window.toggleAdmin = (uid, role) => _ta(uid, role);
@@ -456,6 +548,11 @@ function onLoginSuccess(user) {
   document.getElementById('profileAvatarBig').textContent = user.role === 'admin' ? '👑' : '🔧';
   document.getElementById('adminTab').style.display = user.role === 'admin' ? '' : 'none';
   document.getElementById('addInvBtn').style.display = user.role === 'admin' ? '' : 'none';
+  // Show admin attendance controls
+  if (user.role === 'admin') {
+    document.getElementById('attMemberSel').style.display = '';
+    document.getElementById('addAttBtn').style.display = '';
+  }
   startClock();
   startListeners();
 }
@@ -477,8 +574,26 @@ function startListeners() {
     events = s.val() || {};
     if (currentTab === 'calendar') renderCalendar(events);
   });
-  onValue(ref(db, 'attendance'), s => { attendance = s.val() || {}; renderAttPunch(currentUser, attendance, events); renderAttLog(currentUser, attendance); renderDashboard(currentUser, tickets, inventory, attendance, users); });
-  onValue(ref(db, 'users'), s => { users = s.val() || {}; renderUserList(currentUser, users); });
+  onValue(ref(db, 'attendance'), s => {
+    attendance = s.val() || {};
+    renderAttPunch(currentUser, attendance, events);
+    const selUid = document.getElementById('attMemberSel')?.value;
+    renderAttLog(currentUser, attendance, selUid);
+    renderDashboard(currentUser, tickets, inventory, attendance, users);
+  });
+  onValue(ref(db, 'users'), s => {
+    users = s.val() || {};
+    renderUserList(currentUser, users);
+    // Update attendance member selector for admin
+    const sel = document.getElementById('attMemberSel');
+    if (sel && currentUser.role === 'admin') {
+      const cur = sel.value;
+      sel.innerHTML = Object.entries(users).map(([uid, u]) =>
+        `<option value="${uid}" ${uid === currentUser.uid ? 'selected' : ''}>${u.name}</option>`
+      ).join('');
+      if (cur) sel.value = cur;
+    }
+  });
   listenHolidays();
   if (currentUser.role === 'admin') initHolidayAdmin();
 }
