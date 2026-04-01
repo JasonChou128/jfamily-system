@@ -262,7 +262,7 @@
 
 <!-- TICKET MODAL -->
 <div class="modal-overlay" id="ticketModal"><div class="modal">
-  <div class="modal-title">新增 Issue Ticket</div>
+  <div class="modal-title" id="ticketModalTitle">新增 Issue Ticket</div>
   <div class="form-group"><label>標題</label><input type="text" id="t-title" placeholder="簡短描述問題"></div>
   <div class="form-group"><label>客戶</label><select id="t-client"><option>台積電</option><option>采鈺</option><option>聚恆</option><option>盛齊</option><option>福能</option><option>其他</option></select></div>
   <div class="form-group"><label>設備類型</label><select id="t-type"><option>半導體搬運機器人</option><option>LFP電池儲能系統</option><option>其他</option></select></div>
@@ -273,7 +273,10 @@
     <div class="form-group"><label>截止日期</label><input type="date" id="t-dueDate"></div>
   </div>
   <div class="form-group"><label>問題描述</label><textarea id="t-desc" placeholder="詳細說明問題內容..."></textarea></div>
-  <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('ticketModal')">取消</button><button class="btn btn-primary" onclick="saveTicket()">建立票單</button></div>
+  <div class="modal-actions">
+    <button class="btn btn-ghost" onclick="closeModal('ticketModal')">取消</button>
+    <button class="btn btn-primary" id="ticketSaveBtn" onclick="saveTicket()">建立票單</button>
+  </div>
 </div></div>
 
 <!-- INVENTORY MODAL -->
@@ -436,7 +439,7 @@ import { renderDashboard } from './js/dashboard.js';
 import { renderAttPunch, renderAttLog, doPunch as _dp, doFieldPunch as _dfp, submitLeave as _sl, openEditAttendance as _oea, saveEditAttendance as _sea, deleteAttendance as _da, addAttendance as _aa, renderAdminAttLog } from './js/attendance.js';
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
 import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenHolidays } from './js/calendar.js';
-import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk, addComment as _ac, linkTicketToCalendar as _ltc } from './js/tickets.js';
+import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk, addComment as _ac, linkTicketToCalendar as _ltc, openEditTicket as _oet, saveEditTicket as _set } from './js/tickets.js';
 import { renderUserList, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr, initHolidayAdmin, renderHolidayAdmin, loadPresetHolidays as _lph, addManualHoliday as _amh, deleteHoliday as _dh } from './js/admin.js';
 
 let currentUser = null;
@@ -508,10 +511,17 @@ window.filterTickets = (f, el) => { _ft(f, el); renderTickets(tickets); };
 window.openTicketDetail = id => _otd(id, tickets, currentUser);
 window.advanceTicket = () => _at(tickets, currentUser);
 window.deleteTicket = () => _dtk();
-window.openTicketModal = () => _otm(users);
+window.openTicketModal = () => {
+  document.getElementById('ticketModalTitle').textContent = '新增 Issue Ticket';
+  document.getElementById('ticketSaveBtn').textContent = '建立票單';
+  document.getElementById('ticketSaveBtn').onclick = () => window.saveTicket();
+  _otm(users);
+};
 window.saveTicket = () => _stk(currentUser);
-window.addComment = () => _ac(currentUser);
+window.addComment = () => _ac(currentUser, tickets);
 window.linkTicketToCalendar = id => _ltc(id, tickets);
+window.openEditTicket = id => _oet(id, tickets, users);
+window.saveEditTicket = id => _set(id, currentUser, tickets);
 window.toggleEditUser = uid => _teu(uid);
 window.saveUserEdit = uid => _sue(uid);
 window.toggleAdmin = (uid, role) => _ta(uid, role);
