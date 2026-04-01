@@ -109,6 +109,7 @@ export function openTicketDetail(id, tickets, currentUser) {
     ? `<button class="act-btn act-primary" onclick="window.advanceTicket()">${t.status === 'pending' ? '✓ 標記進行中' : '✓ 標記完成'}</button>` : '';
   document.getElementById('td-actions').innerHTML = `
     ${advBtn}
+    <button class="act-btn act-ghost" onclick="window.openEditTicket('${id}')">✏️ 編輯</button>
     ${t.dueDate ? `<button class="act-btn act-cal" onclick="window.linkTicketToCalendar('${id}')">🗓 加入行事曆</button>` : ''}
     ${isAdmin ? `<button class="act-btn act-danger" onclick="window.deleteTicket()">刪除</button>` : ''}
   `;
@@ -164,7 +165,7 @@ function renderHistory(history) {
 }
 
 // ── ADD COMMENT ──
-export async function addComment(currentUser) {
+export async function addComment(currentUser, tickets) {
   const text = document.getElementById('td-comment-input').value.trim();
   if (!text || !currentTicketId) return;
   const td = today(), nt = nowTime();
@@ -175,11 +176,69 @@ export async function addComment(currentUser) {
     text,
     time: `${td} ${nt}`
   });
-  // Add to history
   const histRef = push(ref(db, `tickets/${currentTicketId}/history`));
   await set(histRef, { type: 'comment', by: currentUser.name || currentUser.email, action: '新增留言', time: `${td} ${nt}` });
-
   document.getElementById('td-comment-input').value = '';
+
+  // 即時更新討論區和History
+  const snap = await get(ref(db, `tickets/${currentTicketId}`));
+  const t = snap.val();
+  if (t) {
+    renderComments(t.comments || {});
+    renderHistory(t.history || {});
+  }
+}
+
+// ── EDIT TICKET ──
+export function openEditTicket(id, tickets, users) {
+  const t = tickets[id];
+  if (!t) return;
+  // 填入現有資料
+  document.getElementById('t-title').value = t.title || '';
+  document.getElementById('t-client').value = t.client || '';
+  document.getElementById('t-type').value = t.type || '';
+  document.getElementById('t-priority').value = t.priority || 'medium';
+  document.getElementById('t-desc').value = t.desc || '';
+  document.getElementById('t-startDate').value = t.startDate || '';
+  document.getElementById('t-dueDate').value = t.dueDate || '';
+  // 更新指派下拉
+  const sel = document.getElementById('t-assign');
+  sel.innerHTML = '<option value="">未指派</option>' +
+    Object.entries(users).map(([, u]) => `<option value="${u.name}">${u.name}</option>`).join('');
+  sel.value = t.assign || '';
+  // 標記為編輯模式
+  document.getElementById('ticketModalTitle').textContent = '編輯 Ticket';
+  document.getElementById('ticketSaveBtn').textContent = '儲存修改';
+  document.getElementById('ticketSaveBtn').onclick = () => window.saveEditTicket(id);
+  document.getElementById('ticketModal').classList.add('open');
+}
+
+export async function saveEditTicket(id, currentUser, tickets) {
+  const title = document.getElementById('t-title').value.trim();
+  if (!title) return;
+  const td = today(), nt = nowTime();
+  const updates = {
+    title,
+    client: document.getElementById('t-client').value,
+    type: document.getElementById('t-type').value,
+    priority: document.getElementById('t-priority').value,
+    assign: document.getElementById('t-assign').value,
+    desc: document.getElementById('t-desc').value.trim(),
+    startDate: document.getElementById('t-startDate').value || td,
+    dueDate: document.getElementById('t-dueDate').value || '',
+  };
+  await update(ref(db, `tickets/${id}`), updates);
+  // 記錄History
+  const histRef = push(ref(db, `tickets/${id}/history`));
+  await set(histRef, {
+    type: 'edit', by: currentUser?.name || currentUser?.email || '管理者',
+    action: '編輯了 Ticket 資料', time: `${td} ${nt}`
+  });
+  document.getElementById('ticketModal').classList.remove('open');
+  // 重設按鈕
+  document.getElementById('ticketModalTitle').textContent = '新增 Issue Ticket';
+  document.getElementById('ticketSaveBtn').textContent = '建立票單';
+  document.getElementById('ticketSaveBtn').onclick = () => window.saveTicket();
 }
 
 // ── ADVANCE TICKET ──
