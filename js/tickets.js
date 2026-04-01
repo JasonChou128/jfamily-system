@@ -10,10 +10,13 @@ export function statusLabel(s) {
 
 // ── GENERATE TICKET NUMBER ──
 async function generateTicketNum() {
-  const snap = await get(ref(db, 'ticketCounter'));
+  const n = new Date();
+  const dateStr = `${n.getFullYear()}${String(n.getMonth()+1).padStart(2,'0')}${String(n.getDate()).padStart(2,'0')}`;
+  const counterKey = `ticketCounter/${dateStr}`;
+  const snap = await get(ref(db, counterKey));
   const counter = (snap.val() || 0) + 1;
-  await set(ref(db, 'ticketCounter'), counter);
-  return '#' + String(counter).padStart(6, '0');
+  await set(ref(db, counterKey), counter);
+  return `#${dateStr}-${String(counter).padStart(4, '0')}`;
 }
 
 // ── FILTER ──
@@ -244,6 +247,7 @@ export async function saveTicket(currentUser) {
   if (!title) return;
   const ticketNum = await generateTicketNum();
   const td = today(), nt = nowTime();
+  const newRef = push(ref(db, 'tickets'));
   const histKey = push(ref(db, `tickets/${newRef.key}/history`)).key;
   await set(newRef, {
     ticketNum,
