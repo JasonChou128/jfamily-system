@@ -27,7 +27,8 @@ let me = null, users = {}, master = { customers: {}, sites: {}, products: {} }, 
 let monthData = {}, unsubMonth = {};        // reports by month: { '2026-10': {id: report} }
 let exportLog = {};
 let editing = null;                          // { month, id }
-let route = null, items = [''], exps = [];
+let route = null, items = [''], exps = [], meta = [{ st: 'done' }];
+let tracking = {};
 let contactAuto = true, prodAuto = true;
 
 const $ = id => document.getElementById(id);
@@ -57,10 +58,11 @@ export function initDailyReport(currentUser) {
   onValue(ref(db, 'master'), s => {
     const v = s.val() || {};
     master = { customers: v.customers || {}, sites: v.sites || {}, products: v.products || {} };
-    refreshSelects(); renderMaster(); renderList(); renderFuel(); renderExpense();
+    refreshSelects(); renderMaster(); renderList(); renderFuel(); renderExpense(); renderTrack();
   });
   onValue(ref(db, 'settings'), s => { settings = { ...DEFAULTS, ...(s.val() || {}) }; if (route) renderRoute(); renderFuel(); renderMembers(); });
   onValue(ref(db, 'exportLog'), s => { exportLog = s.val() || {}; renderFuel(); });
+  onValue(ref(db, 'tracking'), s => { tracking = s.val() || {}; renderTrack(); renderSiteOpen(); });
   watchMonth(ym(today()));
   resetForm();
 }
@@ -69,7 +71,7 @@ export function setUsers(u) {
   users = u || {};
   if (me && users[me.uid]) me = { ...me, ...users[me.uid] };
   if (route && !editing && !route.stops.length && route.origin.type === 'office') { route.origin = { type: 'office', office: userOffice(me.uid) }; if ($('drDrive') && $('drDrive').checked) renderRoute(); }
-  fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense();
+  fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense(); renderTrack();
 }
 
 export function newReport() { resetForm(); $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -131,7 +133,9 @@ function buildPanels() {
     </div>
 
     <div class="dr-sec">處理事項 *</div>
+    <div id="drSiteOpen"></div>
     <ol class="dr-items" id="drItems"></ol>
+    <div class="dr-hint" style="margin-bottom:6px">每條預設為「完成」；沒處理完的請點一下改為「待追蹤」，可選填預計完成日。</div>
     <button type="button" class="btn btn-ghost btn-sm" id="drAddItem">新增一條</button>
 
     <div class="dr-sec">雜項支出</div>
@@ -159,6 +163,17 @@ function buildPanels() {
     <pre class="dr-line" id="drLineText"></pre>
     <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('drLineModal')">關閉</button><a class="btn btn-ghost" id="drGform" target="_blank" rel="noopener" style="text-decoration:none">填寫公司日報表</a><button class="btn btn-primary" id="drCopy">複製文字</button></div>
   </div></div>`;
+
+  $('panel-track').innerHTML = `
+  <div class="card">
+    <div class="card-title"><span>📌 待追蹤事項</span></div>
+    <div id="drTrackStat"></div>
+    <div class="dr-grid">
+      <div class="form-group"><label>狀態</label><select id="drTrackMode"><option value="open">未結案</option><option value="closed">已結案</option></select></div>
+      <div class="form-group"><label>人員</label><select id="drTrackUser"></select></div>
+    </div>
+    <div id="drTrackOut"></div>
+  </div>`;
 
   $('panel-fuel').innerHTML = `
   <div class="card">
@@ -207,6 +222,10 @@ function buildPanels() {
   $('drExpMonth').onchange = () => { watchMonth($('drExpMonth').value); renderExpense(); };
   $('drExpUser').onchange = renderExpense;
   $('drExpXlsx').onclick = exportExpense;
+  $('drTrackMode').onchange = renderTrack; $('drTrackUser').onchange = renderTrack;
+  const onTrackClick = e => { const c = e.target.closest('[data-close]'), o = e.target.closest('[data-reopen]'); if (c) setClosed(c.dataset.close, true); if (o) setClosed(o.dataset.reopen, false); };
+  $('panel-track').addEventListener('click', onTrackClick);
+  $('drSiteOpen').addEventListener('click', onTrackClick);
   $('drListMonth').onchange = () => { watchMonth($('drListMonth').value); renderList(); };
   $('drListUser').onchange = renderList;
   $('drFuelMonth').onchange = () => { watchMonth($('drFuelMonth').value); renderFuel(); };
@@ -216,15 +235,15 @@ function buildPanels() {
 }
 
 function fillUserFilters() {
-  ['drListUser', 'drFuelUser', 'drExpUser'].forEach(id => {
+  ['drListUser', 'drFuelUser', 'drExpUser', 'drTrackUser'].forEach(id => {
     const sel = $(id); if (!sel || !me) return;
     const cur = sel.value;
     const list = isAdmin() ? Object.keys(users) : [me.uid];
-    const all = (id === 'drListUser' || id === 'drExpUser') && isAdmin() ? '<option value="">全部人員</option>' : '';
+    const all = (id === 'drListUser' || id === 'drExpUser' || id === 'drTrackUser') && isAdmin() ? '<option value="">全部人員</option>' : '';
     sel.innerHTML = all + list.filter(uid => users[uid] || uid === me.uid)
       .map(uid => `<option value="${uid}">${esc(uid === me.uid ? me.name : userName(uid))}</option>`).join('');
     if (cur !== undefined && [...sel.options].some(o => o.value === cur)) sel.value = cur;
-    else sel.value = (id === 'drListUser' || id === 'drExpUser') && isAdmin() ? '' : me.uid;
+    else sel.value = (id === 'drListUser' || id === 'drExpUser' || id === 'drTrackUser') && isAdmin() ? '' : me.uid;
   });
 }
 
@@ -248,8 +267,8 @@ function refreshSelects(keep = {}) {
 }
 
 function bindForm() {
-  $('drCust').onchange = () => { refreshSelects({ site: '' }); syncSiteStops(); autoContact(); autoProd(); };
-  $('drSite').onchange = () => { syncSiteStops(); autoContact(); autoProd(); };
+  $('drCust').onchange = () => { refreshSelects({ site: '' }); syncSiteStops(); autoContact(); autoProd(); renderSiteOpen(); };
+  $('drSite').onchange = () => { syncSiteStops(); autoContact(); autoProd(); renderSiteOpen(); };
   $('drProd').addEventListener('change', () => { prodAuto = !$('drProd').value; });
   $('drContact').oninput = function () { contactAuto = !this.value; };
   document.querySelectorAll('#panel-report [data-add]').forEach(b => b.onclick = () => {
@@ -268,10 +287,13 @@ function bindForm() {
   $('drAddCustom').onclick = () => { route.stops.push({ type: 'custom', name: '', addr: '' }); route.legs.push(''); renderRoute(); const ins = $('drRoute').querySelectorAll('[data-stop-name]'); if (ins.length) ins[ins.length - 1].focus(); };
   bindRoute();
   $('drAutoKm').onclick = autoKm;
-  $('drItems').addEventListener('input', e => { if (e.target.dataset.item !== undefined) items[+e.target.dataset.item] = e.target.value; });
-  $('drItems').addEventListener('click', e => { const b = e.target.closest('[data-item-del]'); if (b) { items.splice(+b.dataset.itemDel, 1); renderItems(); } });
+  $('drItems').addEventListener('input', e => { const d = e.target.dataset; if (d.item !== undefined) items[+d.item] = e.target.value; if (d.itemDue !== undefined) meta[+d.itemDue].due = e.target.value; });
+  $('drItems').addEventListener('click', e => {
+    const b = e.target.closest('[data-item-del]'); if (b) { items.splice(+b.dataset.itemDel, 1); meta.splice(+b.dataset.itemDel, 1); renderItems(); return; }
+    const t = e.target.closest('[data-item-st]'); if (t) { const m2 = meta[+t.dataset.itemSt]; if (m2.closedAt) { toast('此事項已結案，請到「待追蹤」頁重新開啟'); return; } m2.st = m2.st === 'open' ? 'done' : 'open'; renderItems(); }
+  });
   $('drItems').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.item !== undefined) { e.preventDefault(); $('drAddItem').click(); } });
-  $('drAddItem').onclick = () => { items.push(''); renderItems(); const l = $('drItems').querySelectorAll('input'); l[l.length - 1].focus(); };
+  $('drAddItem').onclick = () => { items.push(''); meta.push({ st: 'done' }); renderItems(); const l = $('drItems').querySelectorAll('input'); l[l.length - 1].focus(); };
   $('drExps').addEventListener('input', e => { const t = e.target; if (t.dataset.expAmt !== undefined) exps[+t.dataset.expAmt].amt = t.value; if (t.dataset.expNote !== undefined) exps[+t.dataset.expNote].note = t.value; if (t.dataset.expCat !== undefined) exps[+t.dataset.expCat].cat = t.value; });
   $('drExps').addEventListener('change', e => { const t = e.target; if (t.dataset.expCat !== undefined) exps[+t.dataset.expCat].cat = t.value; });
   $('drExps').addEventListener('click', e => { const b = e.target.closest('[data-exp-del]'); if (b) { exps.splice(+b.dataset.expDel, 1); renderExps(); } });
@@ -465,7 +487,14 @@ async function autoKm() {
 }
 
 function renderItems() {
-  $('drItems').innerHTML = items.map((t, i) => `<li><input data-item="${i}" value="${esc(t)}">${items.length > 1 ? `<button type="button" class="btn btn-danger btn-sm" data-item-del="${i}">刪除</button>` : ''}</li>`).join('');
+  while (meta.length < items.length) meta.push({ st: 'done' });
+  $('drItems').innerHTML = items.map((t, i) => {
+    const m2 = meta[i], open = m2.st === 'open', closed = !!m2.closedAt;
+    return `<li class="${open ? 'dr-open' : ''}"><input data-item="${i}" value="${esc(t)}">
+      <button type="button" class="dr-chip ${open ? (closed ? 'closed' : 'open') : ''}" data-item-st="${i}">${open ? (closed ? '已結案' : '待追蹤') : '完成'}</button>
+      ${items.length > 1 ? `<button type="button" class="btn btn-danger btn-sm" data-item-del="${i}">刪除</button>` : ''}
+      ${open && !closed ? `<label class="dr-due">預計完成 <input type="date" data-item-due="${i}" value="${esc(m2.due || '')}"></label>` : ''}</li>`;
+  }).join('');
 }
 function renderExps() {
   $('drExps').innerHTML = exps.map((x, i) => `<div class="dr-exp"><select data-exp-cat="${i}"><option value="">類別</option>${EXP_CATS.map(c => `<option ${x.cat === c ? 'selected' : ''}>${c}</option>`).join('')}</select><input type="number" min="0" step="1" inputmode="numeric" placeholder="金額" data-exp-amt="${i}" value="${esc(x.amt)}"><input placeholder="說明（選填）" data-exp-note="${i}" value="${esc(x.note)}"><button type="button" class="btn btn-danger btn-sm" data-exp-del="${i}">刪除</button></div>`).join('');
@@ -478,7 +507,7 @@ function resetForm() {
   $('drStart').value = '09:00'; $('drEnd').value = '18:00'; $('drTravel').value = '0';
   $('drOvernight').checked = false; $('drDrive').checked = false; $('drRouteBox').hidden = true;
   $('drContact').value = ''; contactAuto = true; prodAuto = true;
-  route = newRoute(); items = ['']; exps = [];
+  route = newRoute(); items = ['']; meta = [{ st: 'done' }]; exps = [];
   refreshSelects({ cust: '', site: '', prod: '' });
   $('drErr').textContent = ''; $('drSubmit').textContent = '送出日報'; $('drFormTitle').textContent = '📝 填寫工作日報';
   renderItems(); renderExps(); showHours();
@@ -517,13 +546,20 @@ async function submit() {
     start: $('drStart').value, end: $('drEnd').value, overnight: $('drOvernight').checked, travel: parseFloat($('drTravel').value) || 0,
     drive, route: drive ? JSON.parse(JSON.stringify(route)) : null,
     items: items.map(x => x.trim()).filter(Boolean),
+    itemMeta: items.map((x, i) => [x.trim(), meta[i] || { st: 'done' }]).filter(([x]) => x).map(([, m2]) => {
+      const o = { st: m2.st === 'open' ? 'open' : 'done' };
+      if (o.st === 'open') { if (m2.due) o.due = m2.due; if (m2.closedAt) { o.closedAt = m2.closedAt; o.closedBy = m2.closedBy || ''; if (m2.closeNote) o.closeNote = m2.closeNote; } }
+      return o;
+    }),
     exps: exps.filter(x => x.amt !== '' || x.note !== '' || x.cat).map(x => ({ cat: x.cat, amt: parseFloat(x.amt) || 0, note: x.note.trim() })),
     updatedAt: now, updatedBy: me.uid,
   };
   if (drive) rec.route.legs = rec.route.legs.map(x => parseFloat(x) || 0);
   $('drSubmit').disabled = true;
   try {
+    let rid;
     if (editing) {
+      rid = editing.id;
       const old = (monthData[editing.month] || {})[editing.id] || {};
       rec.createdAt = old.createdAt || now;
       if (editing.month !== month) {
@@ -532,10 +568,12 @@ async function submit() {
       } else await set(ref(db, `reports/${month}/${editing.id}`), rec);
     } else {
       rec.createdAt = now;
-      await set(push(ref(db, `reports/${month}`)), rec);
+      const nr = push(ref(db, `reports/${month}`)); rid = nr.key;
+      await set(nr, rec);
       const p = master.products[rec.prod];
       if (p) await update(ref(db, `master/products/${rec.prod}`), { uses: (p.uses || 0) + 1 });
     }
+    await syncTracking(rid, month, rec);
     if (rec.contact) await update(ref(db, `master/sites/${rec.site}`), { lastContact: rec.contact });
     const st = master.sites[rec.site];
     if (st && !st.prod && rec.prod) await update(ref(db, `master/sites/${rec.site}`), { prod: rec.prod });
@@ -600,10 +638,72 @@ function loadForEdit(month, id) {
   route.legs = (route.legs || []).map(String);
   route.mins = route.stops.map((_, i) => { const v = (route.mins || {})[i]; return v == null ? null : v; });
   items = (r.items || []).slice(); if (!items.length) items = [''];
+  meta = items.map((_, i) => ({ st: 'done', ...((r.itemMeta || [])[i] || {}) }));
   exps = (r.exps || []).map(x => ({ cat: x.cat || (x.note ? '其他' : ''), amt: String(x.amt), note: x.note || '' }));
   renderItems(); renderExps(); showHours(); if (r.drive) renderRoute();
   $('drSubmit').textContent = '儲存修改'; $('drFormTitle').textContent = '✏️ 修改工作日報';
   $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+// ═════════════ 待追蹤事項 ═════════════
+// tracking/{reportId_index}：{ uid, month, rid, idx, text, cust, site, date, due, closedAt, closedBy, closeNote }
+async function clearTracking(rid) {
+  const ups = {};
+  Object.keys(tracking).forEach(k => { if (tracking[k].rid === rid) ups[k] = null; });
+  if (Object.keys(ups).length) await update(ref(db, 'tracking'), ups);
+}
+async function syncTracking(rid, month, rec) {
+  const ups = {};
+  Object.keys(tracking).forEach(k => { if (tracking[k].rid === rid) ups[k] = null; });
+  (rec.itemMeta || []).forEach((m2, i) => {
+    if (m2.st !== 'open') return;
+    const t = { uid: rec.uid, month, rid, idx: i, text: rec.items[i], cust: rec.cust, site: rec.site, date: rec.date, due: m2.due || '' };
+    if (m2.closedAt) Object.assign(t, { closedAt: m2.closedAt, closedBy: m2.closedBy || '', closeNote: m2.closeNote || '' });
+    ups[`${rid}_${i}`] = t;
+  });
+  if (Object.keys(ups).length) await update(ref(db, 'tracking'), ups);
+}
+const daysSince = d => Math.max(0, Math.floor((new Date(today()) - new Date(d)) / 86400000));
+const canEdit = t => isAdmin() || t.uid === me.uid;
+async function setClosed(key, close) {
+  const t = tracking[key]; if (!t || !canEdit(t)) return;
+  let note = '';
+  if (close) { note = prompt(`結案：${t.text}\n可填寫結案說明（選填）`, ''); if (note === null) return; }
+  const now = new Date().toISOString();
+  const patch = close ? { closedAt: now, closedBy: me.uid, closeNote: note.trim() } : { closedAt: null, closedBy: null, closeNote: null };
+  try {
+    await update(ref(db, `tracking/${key}`), patch);
+    await update(ref(db, `reports/${t.month}/${t.rid}/itemMeta/${t.idx}`), patch);
+    toast(close ? '已結案' : '已重新開啟');
+  } catch (e) { toast('更新失敗：' + e.message); }
+}
+function renderSiteOpen() {
+  const box = $('drSiteOpen'); if (!box || !me) return;
+  const sid = $('drSite').value;
+  const list = Object.entries(tracking).filter(([, t]) => t.site === sid && !t.closedAt && canEdit(t) && !(editing && t.rid === editing.id));
+  box.innerHTML = list.length ? `<div class="dr-siteopen"><b>此案場尚有 ${list.length} 件待追蹤</b>` + list.map(([k, t]) =>
+    `<div class="dr-siteopen-row"><span>${esc(t.text)}<span class="dr-hint">　${esc(userName(t.uid))}・${esc(t.date.slice(5).replace('-', '/'))} 起・${daysSince(t.date)} 天</span></span><button type="button" class="btn btn-ghost btn-sm" data-close="${k}">結案</button></div>`).join('') + '</div>' : '';
+}
+function renderTrack() {
+  const out = $('drTrackOut'); if (!out || !me) return;
+  const u = isAdmin() ? $('drTrackUser').value : me.uid, mode = $('drTrackMode').value;
+  let list = Object.entries(tracking).filter(([, t]) => (!u || t.uid === u) && (mode === 'open' ? !t.closedAt : !!t.closedAt));
+  const openAll = Object.values(tracking).filter(t => !t.closedAt && (!u || t.uid === u));
+  const overdue = openAll.filter(t => t.due && t.due < today()).length, aged = openAll.filter(t => daysSince(t.date) > 7).length;
+  $('drTrackStat').innerHTML = `<div class="dr-stats"><div><b>${openAll.length}</b><span>未結案</span></div><div class="${aged ? 'warn' : ''}"><b>${aged}</b><span>超過 7 天</span></div><div class="${overdue ? 'warn' : ''}"><b>${overdue}</b><span>已逾預計完成日</span></div></div>`;
+  if (!list.length) { out.innerHTML = `<div class="empty-state"><div class="icon">📌</div>${mode === 'open' ? '沒有未結案的待追蹤事項' : '沒有已結案的紀錄'}</div>`; return; }
+  const groups = {};
+  list.forEach(([k, t]) => { const g = `${nm('customers', t.cust)}／${nm('sites', t.site)}`; (groups[g] = groups[g] || []).push([k, t]); });
+  const order = Object.keys(groups).sort((a, b) => Math.max(...groups[b].map(([, t]) => daysSince(t.date))) - Math.max(...groups[a].map(([, t]) => daysSince(t.date))));
+  out.innerHTML = order.map(g => `<div class="dr-sec">${esc(g)}（${groups[g].length}）</div>` + groups[g]
+    .sort((a, b) => a[1].date.localeCompare(b[1].date))
+    .map(([k, t]) => {
+      const d = daysSince(t.date), od = t.due && t.due < today() && !t.closedAt;
+      return `<div class="dr-card ${od ? 'dr-overdue' : ''}"><div class="dr-card-h"><b>${esc(t.text)}</b><span class="dr-tag">${esc(userName(t.uid))}</span></div>
+        <div class="dr-hint">${esc(t.date.replace(/-/g, '/'))} 起${t.closedAt ? `・${esc(new Date(t.closedAt).toLocaleDateString('zh-TW'))} 結案（${esc(userName(t.closedBy))}）` : `・已 ${d} 天`}${t.due ? `・預計完成 ${esc(t.due.replace(/-/g, '/'))}${od ? '（已逾期）' : ''}` : ''}</div>
+        ${t.closeNote ? `<div class="dr-hint">結案說明：${esc(t.closeNote)}</div>` : ''}
+        ${canEdit(t) ? `<div class="dr-actions">${t.closedAt ? `<button class="btn btn-ghost btn-sm" data-reopen="${k}">重新開啟</button>` : `<button class="btn btn-primary btn-sm" data-close="${k}">結案</button>`}</div>` : ''}</div>`;
+    }).join('')).join('');
 }
 
 // ═════════════ 日報紀錄 ═════════════
@@ -618,7 +718,7 @@ function renderList() {
     const mine = r.uid === me.uid, km = r.drive ? round1(kmOf(r.route)) : 0;
     return `<div class="dr-card"><div class="dr-card-h"><b>${esc(r.date.replace(/-/g, '/'))}　${esc(nm('customers', r.cust))}／${esc(nm('sites', r.site))}</b><span class="dr-tag">${esc(userName(r.uid))}</span></div>
       <div class="dr-hint">${esc(nm('products', r.prod))}　${esc(r.start)}~${esc(r.end)}${r.overnight ? '（隔日）' : ''}${r.contact ? '　拜訪：' + esc(r.contact) : ''}${r.drive ? `　${km} km` : ''}</div>
-      <ol class="dr-ol">${(r.items || []).map(x => `<li>${esc(x)}</li>`).join('')}</ol>
+      <ol class="dr-ol">${(r.items || []).map((x, i) => { const m2 = (r.itemMeta || [])[i]; return `<li>${esc(x)}${m2 && m2.st === 'open' ? ` <span class="dr-chip ${m2.closedAt ? 'closed' : 'open'}">${m2.closedAt ? '已結案' : '待追蹤'}</span>` : ''}</li>`; }).join('')}</ol>
       <div class="dr-hint">最後修改：${esc(new Date(r.updatedAt).toLocaleString('zh-TW'))}（${esc(userName(r.updatedBy))}）</div>
       <div class="dr-actions">
         ${mine ? `<button class="btn btn-ghost btn-sm" data-edit="${m}|${id}">修改</button>` : ''}
@@ -632,7 +732,7 @@ async function listClick(e) {
   const [m, id] = (b.dataset.edit || b.dataset.copy || b.dataset.rm || '').split('|');
   if (b.dataset.edit) loadForEdit(m, id);
   if (b.dataset.copy) showLine(monthData[m][id]);
-  if (b.dataset.rm && confirm('確定刪除這筆日報？')) { try { await remove(ref(db, `reports/${m}/${id}`)); toast('已刪除'); } catch (er) { toast('刪除失敗：' + er.message); } }
+  if (b.dataset.rm && confirm('確定刪除這筆日報？\n（此日報的待追蹤事項也會一併移除）')) { try { await clearTracking(id); await remove(ref(db, `reports/${m}/${id}`)); toast('已刪除'); } catch (er) { toast('刪除失敗：' + er.message); } }
 }
 
 // ═════════════ 油資報表 ═════════════
