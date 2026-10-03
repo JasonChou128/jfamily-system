@@ -30,7 +30,7 @@
       <div class="login-field"><label>Email</label><input type="email" id="loginEmail" placeholder="your@email.com" autocomplete="email" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <div class="login-field"><label>密碼</label><input type="password" id="loginPass" placeholder="輸入密碼" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"></div>
       <div class="login-options">
-        <label class="login-checkbox"><input type="checkbox" id="rememberMe"> 記住帳密</label>
+        <label class="login-checkbox"><input type="checkbox" id="rememberMe"> 記住Email</label>
         <label class="login-checkbox"><input type="checkbox" id="stayLoggedIn"> 保持登入</label>
       </div>
       <button class="login-btn" onclick="doLogin()">登入</button>
@@ -248,7 +248,8 @@
     <div class="modal-title">👤 個人資料</div>
     <div class="profile-avatar-big" id="profileAvatarBig">👤</div>
     <div class="form-group"><label>姓名</label><input type="text" id="profileName" placeholder="你的姓名"></div>
-    <div class="form-group"><label>Email</label><input type="email" id="profileEmail" placeholder="your@email.com"></div>
+    <div class="form-group"><label>Email（登入帳號，如需更改請洽管理員）</label><input type="email" id="profileEmail" readonly></div>
+    <div class="form-group"><label>目前密碼（修改密碼時必填）</label><input type="password" id="profileCurPass" placeholder="輸入目前密碼" autocomplete="current-password"></div>
     <div class="form-group"><label>新密碼（不修改請留空）</label><input type="password" id="profilePass" placeholder="輸入新密碼"></div>
     <div class="form-group"><label>確認新密碼</label><input type="password" id="profilePass2" placeholder="再輸入一次"></div>
     <div class="login-error" id="profileError"></div>
@@ -434,7 +435,7 @@
 <script type="module">
 import { db, today, nowTime } from './js/config.js';
 import { ref, set, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
-import { currentUser as _cu, loadSavedSession, loadRemembered, switchLoginTab as _slt, doLogin as _dl, doRegister as _dr, doLogout as _dlo, openProfile as _op, saveProfile as _sp, seedAdmin } from './js/auth.js';
+import { loadRemembered, watchAuth, switchLoginTab as _slt, doLogin as _dl, doRegister as _dr, doLogout as _dlo, openProfile as _op, saveProfile as _sp } from './js/auth.js';
 import { renderDashboard } from './js/dashboard.js';
 import { renderAttPunch, renderAttLog, doPunch as _dp, doFieldPunch as _dfp, submitLeave as _sl, openEditAttendance as _oea, saveEditAttendance as _sea, deleteAttendance as _da, addAttendance as _aa, renderAdminAttLog } from './js/attendance.js';
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
@@ -448,9 +449,9 @@ let currentTab = 'dashboard';
 
 // Expose to window for onclick handlers
 window.switchLoginTab = t => _slt(t);
-window.doLogin = () => _dl(onLoginSuccess);
+window.doLogin = () => _dl();
 window.doRegister = () => _dr();
-window.doLogout = () => { _dlo(); currentUser = null; };
+window.doLogout = () => _dlo();
 window.openProfile = () => _op(currentUser);
 window.saveProfile = () => _sp(currentUser, (updated) => { currentUser = updated; });
 window.switchTab = (tab, el) => {
@@ -608,20 +609,21 @@ function startListeners() {
   if (currentUser.role === 'admin') initHolidayAdmin();
 }
 
-// ── INIT ──
-(async () => {
-  try { await seedAdmin(); } catch (e) { console.warn(e); }
+// ── INIT（v1.6：由 Firebase Authentication 判斷登入狀態）──
+(() => {
   loadRemembered();
-
-  // Check saved session
-  const saved = loadSavedSession() || JSON.parse(sessionStorage.getItem('jfamily_session') || 'null');
-  if (saved) {
-    onLoginSuccess(saved);
-    document.getElementById('loginScreen').style.display = 'none';
-  } else {
+  let started = false;
+  watchAuth(user => {
+    if (started) { currentUser = user; return; }
+    started = true;
+    onLoginSuccess(user);
+    document.getElementById('loadingOverlay').style.display = 'none';
+  }, () => {
     document.getElementById('loginScreen').style.display = 'flex';
-  }
-  document.getElementById('loadingOverlay').style.display = 'none';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('fab').style.display = 'none';
+    document.getElementById('loadingOverlay').style.display = 'none';
+  });
 
   // Close modals on overlay click
   document.querySelectorAll('.modal-overlay').forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('open'); }));
