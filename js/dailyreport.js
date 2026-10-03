@@ -190,8 +190,9 @@ function buildPanels() {
     <div class="card-title"><span>👤 日報成員設定</span></div>
     <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值；公司日報表填表人是開啟公司 Google 表單時自動選取的名字。</p>
     <div class="dr-gnames">
-      <div class="form-group" style="flex:1;margin:0"><label>Google 路線金鑰（自動計算公里用，僅管理員可見與修改）</label><input class="dr-in" id="drGKey" placeholder="AIza 開頭"></div>
+      <div class="form-group" style="flex:1;margin:0"><label>Google 路線金鑰（自動計算公里用）　<span id="drGKeyState" style="text-transform:none;letter-spacing:0"></span></label><input class="dr-in" id="drGKey" type="password" autocomplete="off" placeholder="輸入新金鑰以設定或更換"></div>
       <button class="btn btn-primary btn-sm" id="drGKeySave">儲存金鑰</button>
+      <button class="btn btn-danger btn-sm" id="drGKeyClear">清除</button>
     </div>
     <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>公司日報表填表人名單（需與 Google 表單選項完全相同，以逗號分隔）</label><input class="dr-in" id="drGNames"></div>
@@ -837,14 +838,19 @@ function renderMembers() {
   const tb = $('drMembers'); if (!tb || !isAdmin()) return;
   const gi = $('drGNames');
   if (gi && document.activeElement !== gi) gi.value = gformNames().join(', ');
-  const gk = $('drGKey');
-  if (gk && document.activeElement !== gk) gk.value = gmapsKey();
+  const gs = $('drGKeyState'), k = gmapsKey();
+  if (gs) gs.textContent = k ? `已設定（${k.slice(0, 4)}••••••${k.slice(-4)}）` : '尚未設定';
   if (!renderMembers.gbound) {
     renderMembers.gbound = true;
     $('drGKeySave').onclick = async () => {
       const v = $('drGKey').value.trim();
-      if (v && !/^AIza[\w-]{30,}$/.test(v)) { toast('金鑰格式不正確，應為 AIza 開頭'); return; }
-      try { await set(ref(db, 'settings/gmapsKey'), v); toast(v ? '金鑰已儲存' : '金鑰已清除'); } catch (er) { toast('儲存失敗：' + er.message); }
+      if (!v) { toast('請輸入金鑰'); return; }
+      if (!/^AIza[\w-]{30,}$/.test(v)) { toast('金鑰格式不正確，應為 AIza 開頭'); return; }
+      try { await set(ref(db, 'settings/gmapsKey'), v); $('drGKey').value = ''; toast('金鑰已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
+    $('drGKeyClear').onclick = async () => {
+      if (!gmapsKey() || !confirm('確定清除 Google 金鑰？清除後自動計算公里將無法使用。')) return;
+      try { await set(ref(db, 'settings/gmapsKey'), ''); toast('金鑰已清除'); } catch (er) { toast('清除失敗：' + er.message); }
     };
     $('drGNamesSave').onclick = async () => {
       const list = [...new Set($('drGNames').value.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean))];
