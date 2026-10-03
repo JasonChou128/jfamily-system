@@ -15,8 +15,9 @@ const GFORM = {
   url: 'https://docs.google.com/forms/d/e/1FAIpQLSdJmwpN4YI_mFD7mMpTUxKzpPHIUhdboWw7qQUIN9UqT7RSNQ/viewform',
   date: 'entry.1692184938', who: 'entry.1138657570', scope: 'entry.2137328229', place: 'entry.1936715460',
   equip: 'entry.513482749', problem: 'entry.1241252801', work: 'entry.124862251',
-  names: ['Jason', 'Roy', 'Evin', 'Ken', 'Kai', 'Rex'],
+  names: ['Jason', 'Roy', 'Evin', 'Ken', 'Kai', 'Rex'],   // 預設值；管理頁可維護（settings/gformNames）
 };
+const gformNames = () => (Array.isArray(settings.gformNames) && settings.gformNames.length ? settings.gformNames : GFORM.names);
 const EXP_CATS = ['停車費', '住宿費', '運費', '餐費', '公共交通運輸費', '五金', '零件/耗材', '其他'];
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 
@@ -56,7 +57,7 @@ export function initDailyReport(currentUser) {
     master = { customers: v.customers || {}, sites: v.sites || {}, products: v.products || {} };
     refreshSelects(); renderMaster(); renderList(); renderFuel(); renderExpense();
   });
-  onValue(ref(db, 'settings'), s => { settings = { ...DEFAULTS, ...(s.val() || {}) }; if (route) renderRoute(); renderFuel(); });
+  onValue(ref(db, 'settings'), s => { settings = { ...DEFAULTS, ...(s.val() || {}) }; if (route) renderRoute(); renderFuel(); renderMembers(); });
   onValue(ref(db, 'exportLog'), s => { exportLog = s.val() || {}; renderFuel(); });
   watchMonth(ym(today()));
   resetForm();
@@ -185,6 +186,10 @@ function buildPanels() {
   <div class="card">
     <div class="card-title"><span>👤 日報成員設定</span></div>
     <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值；公司日報表填表人是開啟公司 Google 表單時自動選取的名字。</p>
+    <div class="dr-gnames">
+      <div class="form-group" style="flex:1;margin:0"><label>公司日報表填表人名單（需與 Google 表單選項完全相同，以逗號分隔）</label><input class="dr-in" id="drGNames"></div>
+      <button class="btn btn-primary btn-sm" id="drGNamesSave">儲存名單</button>
+    </div>
     <table class="data-table"><thead><tr><th>成員</th><th>中文姓名</th><th>所屬辦公室</th><th>公司日報表填表人</th><th></th></tr></thead><tbody id="drMembers"></tbody></table>
   </div>`;
 
@@ -745,12 +750,22 @@ function renderMaster() {
 }
 function renderMembers() {
   const tb = $('drMembers'); if (!tb || !isAdmin()) return;
+  const gi = $('drGNames');
+  if (gi && document.activeElement !== gi) gi.value = gformNames().join(', ');
+  if (!renderMembers.gbound) {
+    renderMembers.gbound = true;
+    $('drGNamesSave').onclick = async () => {
+      const list = [...new Set($('drGNames').value.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean))];
+      if (!list.length) { toast('名單不能為空'); return; }
+      try { await set(ref(db, 'settings/gformNames'), list); toast('名單已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
+  }
   const o = offices();
   tb.innerHTML = Object.entries(users).filter(([, u]) => u.role !== 'pending').map(([uid, u]) => `<tr>
     <td>${esc(u.name)}</td>
     <td><input class="dr-in" data-cname="${uid}" value="${esc(u.cname || '')}" placeholder="${esc(u.name)}"></td>
     <td><select class="dr-in" data-office-of="${uid}">${Object.entries(o).map(([k, x]) => `<option value="${k}" ${(u.office || 'tf') === k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
-    <td><select class="dr-in" data-form-of="${uid}"><option value="">（不帶入）</option>${GFORM.names.map(n => `<option ${u.formName === n ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
+    <td><select class="dr-in" data-form-of="${uid}"><option value="">（不帶入）</option>${[...new Set([...gformNames(), ...(u.formName ? [u.formName] : [])])].map(n => `<option ${u.formName === n ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
     <td><button class="btn btn-primary btn-sm" data-save-member="${uid}">儲存</button></td></tr>`).join('');
   if (!renderMembers.bound) {
     renderMembers.bound = true;
