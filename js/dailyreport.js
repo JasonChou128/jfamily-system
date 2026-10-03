@@ -18,8 +18,8 @@ const GFORM = {
   names: ['Jason', 'Roy', 'Evin', 'Ken', 'Kai', 'Rex'],   // 預設值；管理頁可維護（settings/gformNames）
 };
 const gformNames = () => (Array.isArray(settings.gformNames) && settings.gformNames.length ? settings.gformNames : GFORM.names);
-// Google Routes API 金鑰（限 jasonchou128.github.io 使用，限 Routes API 與 Maps JavaScript API）
-const GMAPS_KEY = 'AIzaSyAWzdbp1R_8q9xiW0DXtISHpsuAMRjD4Fo';
+// Google Routes API 金鑰：v1.7.2 起改存於資料庫 settings/gmapsKey，由管理頁設定，程式碼不再包含金鑰
+const gmapsKey = () => String(settings.gmapsKey || '').trim();
 const EXP_CATS = ['停車費', '住宿費', '運費', '餐費', '公共交通運輸費', '五金', '零件/耗材', '其他'];
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 
@@ -28,7 +28,7 @@ let monthData = {}, unsubMonth = {};        // reports by month: { '2026-10': {i
 let exportLog = {};
 let editing = null;                          // { month, id }
 let route = null, items = [''], exps = [];
-let contactAuto = true;
+let contactAuto = true, prodAuto = true;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -190,6 +190,10 @@ function buildPanels() {
     <div class="card-title"><span>👤 日報成員設定</span></div>
     <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值；公司日報表填表人是開啟公司 Google 表單時自動選取的名字。</p>
     <div class="dr-gnames">
+      <div class="form-group" style="flex:1;margin:0"><label>Google 路線金鑰（自動計算公里用，僅管理員可見與修改）</label><input class="dr-in" id="drGKey" placeholder="AIza 開頭"></div>
+      <button class="btn btn-primary btn-sm" id="drGKeySave">儲存金鑰</button>
+    </div>
+    <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>公司日報表填表人名單（需與 Google 表單選項完全相同，以逗號分隔）</label><input class="dr-in" id="drGNames"></div>
       <button class="btn btn-primary btn-sm" id="drGNamesSave">儲存名單</button>
     </div>
@@ -243,8 +247,9 @@ function refreshSelects(keep = {}) {
 }
 
 function bindForm() {
-  $('drCust').onchange = () => { refreshSelects({ site: '' }); syncSiteStops(); autoContact(); };
-  $('drSite').onchange = () => { syncSiteStops(); autoContact(); };
+  $('drCust').onchange = () => { refreshSelects({ site: '' }); syncSiteStops(); autoContact(); autoProd(); };
+  $('drSite').onchange = () => { syncSiteStops(); autoContact(); autoProd(); };
+  $('drProd').addEventListener('change', () => { prodAuto = !$('drProd').value; });
   $('drContact').oninput = function () { contactAuto = !this.value; };
   document.querySelectorAll('#panel-report [data-add]').forEach(b => b.onclick = () => {
     const k = b.dataset.add;
@@ -299,6 +304,13 @@ async function saveMaster(k) {
   } catch (e) { toast('新增失敗：' + (e.message || e)); }
 }
 
+function autoProd() {
+  if (!prodAuto && $('drProd').value) return;
+  const s2 = master.sites[$('drSite').value], pid = s2 && s2.prod;
+  if (pid && master.products[pid] && master.products[pid].active !== false) refreshSelects({ prod: pid });
+  else if (prodAuto) refreshSelects({ prod: '' });
+  prodAuto = true;
+}
 function autoContact() {
   if (!contactAuto && $('drContact').value) return;
   const s = master.sites[$('drSite').value];
@@ -411,7 +423,7 @@ async function legKey(from, to) {
 async function googleLeg(from, to) {
   const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': GMAPS_KEY, 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration' },
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': gmapsKey(), 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration' },
     body: JSON.stringify({ origin: { address: from }, destination: { address: to }, travelMode: 'DRIVE', routingPreference: 'TRAFFIC_UNAWARE', languageCode: 'zh-TW', regionCode: 'TW' }),
   });
   const j = await res.json().catch(() => ({}));
@@ -423,7 +435,7 @@ async function googleLeg(from, to) {
 async function autoKm() {
   const msg = $('drAutoMsg'), btn = $('drAutoKm');
   if (!route.stops.length) { msg.textContent = '請先加入目的地'; return; }
-  if (!GMAPS_KEY || GMAPS_KEY.includes('請貼上')) { msg.textContent = '尚未設定 Google 金鑰，請先手動輸入公里數'; return; }
+  if (!gmapsKey()) { msg.textContent = '尚未設定 Google 金鑰（管理頁 → 日報成員設定），請先手動輸入公里數'; return; }
   const pts = [route.origin, ...route.stops];
   route.mins = route.mins || [];
   const todo = route.stops.map((_, i) => i).filter(i => route.legs[i] === '' || route.legs[i] == null);
@@ -464,7 +476,7 @@ function resetForm() {
   $('drDate').value = today(); $('drUser').value = me.name || me.email;
   $('drStart').value = '09:00'; $('drEnd').value = '18:00'; $('drTravel').value = '0';
   $('drOvernight').checked = false; $('drDrive').checked = false; $('drRouteBox').hidden = true;
-  $('drContact').value = ''; contactAuto = true;
+  $('drContact').value = ''; contactAuto = true; prodAuto = true;
   route = newRoute(); items = ['']; exps = [];
   refreshSelects({ cust: '', site: '', prod: '' });
   $('drErr').textContent = ''; $('drSubmit').textContent = '送出日報'; $('drFormTitle').textContent = '📝 填寫工作日報';
@@ -524,6 +536,8 @@ async function submit() {
       if (p) await update(ref(db, `master/products/${rec.prod}`), { uses: (p.uses || 0) + 1 });
     }
     if (rec.contact) await update(ref(db, `master/sites/${rec.site}`), { lastContact: rec.contact });
+    const st = master.sites[rec.site];
+    if (st && !st.prod && rec.prod) await update(ref(db, `master/sites/${rec.site}`), { prod: rec.prod });
     watchMonth(month);
     showLine(rec);
     resetForm();
@@ -578,7 +592,7 @@ function loadForEdit(month, id) {
   window.switchTab('report', document.querySelector('.nav-tab[data-tab="report"]'));
   $('drDate').value = r.date; $('drUser').value = userName(r.uid);
   refreshSelects({ cust: r.cust, site: r.site, prod: r.prod });
-  $('drContact').value = r.contact || ''; contactAuto = !r.contact;
+  $('drContact').value = r.contact || ''; contactAuto = !r.contact; prodAuto = false;
   $('drStart').value = r.start; $('drEnd').value = r.end; $('drOvernight').checked = !!r.overnight; $('drTravel').value = r.travel || 0;
   $('drDrive').checked = !!r.drive; $('drRouteBox').hidden = !r.drive;
   route = r.drive && r.route ? JSON.parse(JSON.stringify({ stops: [], legs: [], ...r.route })) : newRoute();
@@ -823,8 +837,15 @@ function renderMembers() {
   const tb = $('drMembers'); if (!tb || !isAdmin()) return;
   const gi = $('drGNames');
   if (gi && document.activeElement !== gi) gi.value = gformNames().join(', ');
+  const gk = $('drGKey');
+  if (gk && document.activeElement !== gk) gk.value = gmapsKey();
   if (!renderMembers.gbound) {
     renderMembers.gbound = true;
+    $('drGKeySave').onclick = async () => {
+      const v = $('drGKey').value.trim();
+      if (v && !/^AIza[\w-]{30,}$/.test(v)) { toast('金鑰格式不正確，應為 AIza 開頭'); return; }
+      try { await set(ref(db, 'settings/gmapsKey'), v); toast(v ? '金鑰已儲存' : '金鑰已清除'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
     $('drGNamesSave').onclick = async () => {
       const list = [...new Set($('drGNames').value.split(/[,，、\n]/).map(x => x.trim()).filter(Boolean))];
       if (!list.length) { toast('名單不能為空'); return; }
