@@ -68,6 +68,8 @@
 
   <div class="nav-tabs">
     <div class="nav-tab active" onclick="switchTab('dashboard',this)">📊 總覽</div>
+    <div class="nav-tab" data-tab="report" onclick="switchTab('report',this)">📝 工作日報</div>
+    <div class="nav-tab" data-tab="fuel" onclick="switchTab('fuel',this)">⛽ 油資報表</div>
     <div class="nav-tab" onclick="switchTab('attendance',this)">🕐 出勤打卡</div>
     <div class="nav-tab" onclick="switchTab('inventory',this)">📦 物料管理</div>
     <div class="nav-tab" onclick="switchTab('calendar',this)">📅 行事曆</div>
@@ -90,6 +92,10 @@
         <table class="data-table"><thead><tr><th>成員</th><th>上班</th><th>下班</th><th>狀態</th></tr></thead><tbody id="dash-attendance"></tbody></table>
       </div>
     </div>
+
+    <!-- DAILY REPORT (v1.6) -->
+    <div class="panel" id="panel-report"></div>
+    <div class="panel" id="panel-fuel"></div>
 
     <!-- ATTENDANCE -->
     <div class="panel" id="panel-attendance">
@@ -204,6 +210,7 @@
         <div class="card-title"><span>👥 帳號管理</span></div>
         <table class="data-table"><thead><tr><th>姓名</th><th>Email</th><th>權限</th><th>操作</th></tr></thead><tbody id="userList"></tbody></table>
       </div>
+      <div id="drAdminHost"></div>
       <div class="card">
         <div class="card-title"><span>📅 假日管理</span></div>
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">依據行政院人事行政總處官方公告管理台灣國定假日，每年更新一次</p>
@@ -437,6 +444,7 @@ import { db, today, nowTime } from './js/config.js';
 import { ref, set, push, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 import { loadRemembered, watchAuth, switchLoginTab as _slt, doLogin as _dl, doRegister as _dr, doLogout as _dlo, openProfile as _op, saveProfile as _sp } from './js/auth.js';
 import { renderDashboard } from './js/dashboard.js';
+import { initDailyReport, setUsers as drSetUsers, newReport as drNewReport } from './js/dailyreport.js';
 import { renderAttPunch, renderAttLog, doPunch as _dp, doFieldPunch as _dfp, submitLeave as _sl, openEditAttendance as _oea, saveEditAttendance as _sea, deleteAttendance as _da, addAttendance as _aa, renderAdminAttLog } from './js/attendance.js';
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
 import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenHolidays } from './js/calendar.js';
@@ -542,7 +550,8 @@ window.copyReport = () => {
     .catch(() => alert('請手動複製報表內容'));
 };
 window.onFab = () => {
-  if (currentTab === 'tickets' || currentTab === 'dashboard') window.openTicketModal();
+  if (currentTab === 'report' || currentTab === 'fuel') drNewReport();
+  else if (currentTab === 'tickets' || currentTab === 'dashboard') window.openTicketModal();
   else if (currentTab === 'inventory' && currentUser?.role === 'admin') window.openInvModal();
   else if (currentTab === 'calendar') window.openEventModal();
   else if (currentTab === 'attendance') window.doPunch();
@@ -565,6 +574,7 @@ function onLoginSuccess(user) {
     document.getElementById('addAttBtn').style.display = '';
   }
   startClock();
+  initDailyReport(user);
   startListeners();
 }
 
@@ -595,6 +605,7 @@ function startListeners() {
   onValue(ref(db, 'users'), s => {
     users = s.val() || {};
     renderUserList(currentUser, users);
+    drSetUsers(users);
     // Update attendance member selector for admin
     const sel = document.getElementById('attMemberSel');
     if (sel && currentUser.role === 'admin') {
