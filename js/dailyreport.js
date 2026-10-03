@@ -18,6 +18,8 @@ const GFORM = {
   names: ['Jason', 'Roy', 'Evin', 'Ken', 'Kai', 'Rex'],   // 預設值；管理頁可維護（settings/gformNames）
 };
 const gformNames = () => (Array.isArray(settings.gformNames) && settings.gformNames.length ? settings.gformNames : GFORM.names);
+// Google Routes API 金鑰（限 jasonchou128.github.io 使用，限 Routes API 與 Maps JavaScript API）
+const GMAPS_KEY = 'AIzaSyAWzdbp1R_8q9xiW0DXtISHpsuAMRjD4Fo';
 const EXP_CATS = ['停車費', '住宿費', '運費', '餐費', '公共交通運輸費', '五金', '零件/耗材', '其他'];
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 
@@ -124,6 +126,7 @@ function buildPanels() {
         <button type="button" class="btn btn-ghost btn-sm" data-office="tn">加入南部辦公室</button>
         <button type="button" class="btn btn-ghost btn-sm" id="drAddCustom">加入其他地點</button>
       </div>
+      <div class="dr-auto"><button type="button" class="btn btn-primary btn-sm" id="drAutoKm">自動計算公里</button><span class="dr-hint" id="drAutoMsg">計算空白的路段；要重算某段，先清空該段公里數</span></div>
       <div class="dr-total"><span>總里程 <b id="drKm">0</b> 公里 × <span id="drRate">8</span> 元</span><span class="dr-big">NT$ <span id="drFuel">0</span></span></div>
     </div>
 
@@ -258,6 +261,7 @@ function bindForm() {
   document.querySelectorAll('#panel-report [data-office]').forEach(b => b.onclick = () => { route.stops.push({ type: 'office', office: b.dataset.office }); route.legs.push(''); renderRoute(); });
   $('drAddCustom').onclick = () => { route.stops.push({ type: 'custom', name: '', addr: '' }); route.legs.push(''); renderRoute(); const ins = $('drRoute').querySelectorAll('[data-stop-name]'); if (ins.length) ins[ins.length - 1].focus(); };
   bindRoute();
+  $('drAutoKm').onclick = autoKm;
   $('drItems').addEventListener('input', e => { if (e.target.dataset.item !== undefined) items[+e.target.dataset.item] = e.target.value; });
   $('drItems').addEventListener('click', e => { const b = e.target.closest('[data-item-del]'); if (b) { items.splice(+b.dataset.itemDel, 1); renderItems(); } });
   $('drItems').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.item !== undefined) { e.preventDefault(); $('drAddItem').click(); } });
@@ -346,7 +350,8 @@ function renderRoute() {
   const customIns = (p, key) => `<input data-${key}-name placeholder="地點簡稱（印在報表上），例如 GBG宜蘭利澤" value="${esc(p.name)}"><input data-${key}-addr placeholder="地址（選填）" value="${esc(p.addr)}">`;
   let h = `<div class="dr-stop dr-origin"><div class="dr-stop-h"><span>起點</span></div><select data-origin>${opts}</select>${addrLine(r.origin)}${r.origin.type === 'custom' ? customIns(r.origin, 'origin') : ''}</div>`;
   r.stops.forEach((st, i) => {
-    h += `<div class="dr-leg">這段 <input type="number" min="0" step="0.1" inputmode="decimal" data-leg="${i}" value="${esc(r.legs[i])}"> 公里</div>`;
+    const mn = (r.mins || [])[i];
+    h += `<div class="dr-leg">這段 <input type="number" min="0" step="0.1" inputmode="decimal" data-leg="${i}" value="${esc(r.legs[i])}"> 公里${mn != null && r.legs[i] !== '' ? `<span class="dr-auto-tag">自動・約 ${mn} 分鐘</span>` : ''}</div>`;
     h += `<div class="dr-stop"><div class="dr-stop-h"><span>目的地 ${i + 1}</span><span>
       <button type="button" class="btn btn-ghost btn-sm" data-up="${i}" ${i === 0 ? 'disabled' : ''}>上移</button>
       <button type="button" class="btn btn-ghost btn-sm" data-down="${i}" ${i === r.stops.length - 1 ? 'disabled' : ''}>下移</button>
@@ -369,7 +374,7 @@ function bindRoute() {
   });
   box.addEventListener('input', e => {
     const d = e.target.dataset;
-    if (d.leg !== undefined) { route.legs[+d.leg] = e.target.value; calcFuel(); }
+    if (d.leg !== undefined) { route.legs[+d.leg] = e.target.value; (route.mins = route.mins || [])[+d.leg] = null; const t = e.target.parentElement.querySelector('.dr-auto-tag'); if (t) t.remove(); calcFuel(); }
     if (d.originName !== undefined) route.origin.name = e.target.value;
     if (d.originAddr !== undefined) route.origin.addr = e.target.value;
     if (d.stopName !== undefined) route.stops[+d.stopName].name = e.target.value;
@@ -381,13 +386,70 @@ function bindRoute() {
     const sw = (a, c) => { [s[a], s[c]] = [s[c], s[a]]; l[a] = ''; l[c] = ''; };
     if (b.dataset.up !== undefined) { i = +b.dataset.up; sw(i, i - 1); if (i + 1 < l.length) l[i + 1] = ''; }
     else if (b.dataset.down !== undefined) { i = +b.dataset.down; sw(i, i + 1); if (i + 2 < l.length) l[i + 2] = ''; }
-    else if (b.dataset.del !== undefined) { i = +b.dataset.del; s.splice(i, 1); l.splice(i, 1); if (i < l.length) l[i] = ''; }
+    else if (b.dataset.del !== undefined) { i = +b.dataset.del; s.splice(i, 1); l.splice(i, 1); (route.mins = route.mins || []).splice(i, 1); if (i < l.length) l[i] = ''; }
     else return;
+    route.mins = (route.mins || []).slice(0, l.length);
+    l.forEach((v, k) => { if (v === '') route.mins[k] = null; });
     renderRoute();
   });
 }
 const kmOf = r => (r && r.legs ? r.legs : []).reduce((a, b) => a + (parseFloat(b) || 0), 0);
 function calcFuel() { const km = round1(kmOf(route)); $('drKm').textContent = km; $('drRate').textContent = rate(); $('drFuel').textContent = Math.round(km * rate()).toLocaleString(); }
+
+// ── 自動計算公里（Google Routes API，結果快取於 distCache，同一路段只查一次） ──
+function addrOf(p) {
+  if (!p) return '';
+  if (p.type === 'office') { const o = offices()[p.office]; return o ? o.addr : ''; }
+  if (p.type === 'site') { const x = master.sites[p.site]; return (x && x.addr) || ''; }
+  return p.addr || '';
+}
+const BAD_ADDR = /國外|一帶|園區$/;
+async function legKey(from, to) {
+  const buf = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(`${from}→${to}`));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+async function googleLeg(from, to) {
+  const res = await fetch('https://routes.googleapis.com/directions/v2:computeRoutes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Goog-Api-Key': GMAPS_KEY, 'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration' },
+    body: JSON.stringify({ origin: { address: from }, destination: { address: to }, travelMode: 'DRIVE', routingPreference: 'TRAFFIC_UNAWARE', languageCode: 'zh-TW', regionCode: 'TW' }),
+  });
+  const j = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error((j.error && j.error.message) || `HTTP ${res.status}`);
+  const rt = j.routes && j.routes[0];
+  if (!rt || rt.distanceMeters == null) throw new Error('Google 找不到這兩點之間的路線');
+  return { km: round1(rt.distanceMeters / 1000), min: Math.round(parseInt(rt.duration || '0', 10) / 60) };
+}
+async function autoKm() {
+  const msg = $('drAutoMsg'), btn = $('drAutoKm');
+  if (!route.stops.length) { msg.textContent = '請先加入目的地'; return; }
+  if (!GMAPS_KEY || GMAPS_KEY.includes('請貼上')) { msg.textContent = '尚未設定 Google 金鑰，請先手動輸入公里數'; return; }
+  const pts = [route.origin, ...route.stops];
+  route.mins = route.mins || [];
+  const todo = route.stops.map((_, i) => i).filter(i => route.legs[i] === '' || route.legs[i] == null);
+  if (!todo.length) { msg.textContent = '每段都已有公里數；要重算請先清空該段'; return; }
+  btn.disabled = true; msg.textContent = '計算中…';
+  const fails = []; let hit = 0, call = 0;
+  for (const i of todo) {
+    const from = addrOf(pts[i]), to = addrOf(pts[i + 1]), nm2 = `${label(pts[i])} → ${label(pts[i + 1])}`;
+    if (!from || !to) { fails.push(`${nm2}：缺少地址`); continue; }
+    if (BAD_ADDR.test(from) || BAD_ADDR.test(to)) { fails.push(`${nm2}：地址不夠精確`); continue; }
+    try {
+      const key = await legKey(from, to);
+      const c = (await get(ref(db, `distCache/${key}`))).val();
+      let v = c;
+      if (c) hit++;
+      else { v = await googleLeg(from, to); call++; await set(ref(db, `distCache/${key}`), { from, to, km: v.km, min: v.min, at: new Date().toISOString() }); }
+      route.legs[i] = String(v.km); route.mins[i] = v.min;
+    } catch (e) { fails.push(`${nm2}：${e.message}`); }
+  }
+  btn.disabled = false;
+  renderRoute();
+  const allAuto = route.stops.every((_, i) => route.legs[i] !== '' && route.mins[i] != null);
+  if (allAuto) { const h = route.mins.reduce((a, m) => a + (m || 0), 0) / 60; $('drTravel').value = Math.max(0.5, Math.round(h * 2) / 2); }
+  msg.textContent = (fails.length ? '以下路段請手動輸入：' + fails.join('；') + '。' : '計算完成。') +
+    `（沿用紀錄 ${hit} 段、查詢 Google ${call} 段${allAuto ? '，已帶入交通時間' : ''}）`;
+}
 
 function renderItems() {
   $('drItems').innerHTML = items.map((t, i) => `<li><input data-item="${i}" value="${esc(t)}">${items.length > 1 ? `<button type="button" class="btn btn-danger btn-sm" data-item-del="${i}">刪除</button>` : ''}</li>`).join('');
@@ -521,6 +583,7 @@ function loadForEdit(month, id) {
   $('drDrive').checked = !!r.drive; $('drRouteBox').hidden = !r.drive;
   route = r.drive && r.route ? JSON.parse(JSON.stringify({ stops: [], legs: [], ...r.route })) : newRoute();
   route.legs = (route.legs || []).map(String);
+  route.mins = route.stops.map((_, i) => { const v = (route.mins || {})[i]; return v == null ? null : v; });
   items = (r.items || []).slice(); if (!items.length) items = [''];
   exps = (r.exps || []).map(x => ({ cat: x.cat || (x.note ? '其他' : ''), amt: String(x.amt), note: x.note || '' }));
   renderItems(); renderExps(); showHours(); if (r.drive) renderRoute();
@@ -734,7 +797,7 @@ async function exportExpense() {
 function renderMaster() {
   if (!$('drMCust') || !isAdmin()) return;
   const li = (coll, id, x, extra) => `<li class="${x.active === false ? 'off' : ''}"><span>${esc(x.name)}${extra ? `<span class="dr-hint">　${esc(extra)}</span>` : ''}${x.active === false ? '　<span class="dr-tag">已停用</span>' : ''}</span>
-    <button class="btn btn-sm ${x.active === false ? 'btn-ghost' : 'btn-danger'}" data-toggle="${coll}|${id}">${x.active === false ? '啟用' : '停用'}</button></li>`;
+    <span style="display:flex;gap:4px;flex-shrink:0">${coll === 'sites' ? `<button class="btn btn-sm btn-ghost" data-addr="${id}">地址</button>` : ''}<button class="btn btn-sm ${x.active === false ? 'btn-ghost' : 'btn-danger'}" data-toggle="${coll}|${id}">${x.active === false ? '啟用' : '停用'}</button></span></li>`;
   const sortN = o => Object.entries(o).sort((a, b) => a[1].name.localeCompare(b[1].name, 'zh-Hant'));
   $('drMCust').innerHTML = sortN(master.customers).map(([id, x]) => li('customers', id, x)).join('') || '<li class="dr-hint">尚無資料</li>';
   $('drMSite').innerHTML = sortN(master.sites).map(([id, x]) => li('sites', id, x, `${nm('customers', x.cust)}｜${x.addr || '未填地址'}`)).join('') || '<li class="dr-hint">尚無資料</li>';
@@ -742,6 +805,14 @@ function renderMaster() {
   if (!renderMaster.bound) {
     renderMaster.bound = true;
     $('drAdminHost').addEventListener('click', async e => {
+      const ab = e.target.closest('[data-addr]');
+      if (ab && isAdmin()) {
+        const x = master.sites[ab.dataset.addr];
+        const v = prompt(`「${x.name}」的地址（可填門牌地址或 Google Plus Code，例如 VPM3+V5 萬丹村 南投縣名間鄉）`, x.addr || '');
+        if (v === null) return;
+        try { await update(ref(db, `master/sites/${ab.dataset.addr}`), { addr: v.trim() }); toast('地址已更新'); } catch (er) { toast('更新失敗：' + er.message); }
+        return;
+      }
       const b = e.target.closest('[data-toggle]'); if (!b || !isAdmin()) return;
       const [coll, id] = b.dataset.toggle.split('|'), x = master[coll][id];
       await update(ref(db, `master/${coll}/${id}`), { active: x.active === false });
