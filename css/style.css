@@ -346,3 +346,6 @@ body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: va
 .dr-gnames { display: flex; gap: 10px; align-items: flex-end; margin-bottom: 16px; flex-wrap: wrap; }
 .dr-auto { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 10px 0 0 30px; }
 .dr-auto-tag { font-size: 11px; color: var(--accent3); margin-left: 6px; }
+
+/* v1.7.1 隱藏不使用的功能（出勤打卡、行事曆）；程式與資料保留，移除此 class 即可恢復 */
+.jf-hidden, .act-cal { display: none !important; }
