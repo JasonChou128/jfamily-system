@@ -10,6 +10,13 @@ const DEFAULTS = {
     tn: { name: '南部辦公室', xls: 'GBG南部辦公室', addr: '741臺南市善化區蓮潭里陽光南一路1巷66號' },
   },
 };
+// 公司「客戶服務日報表」Google 表單（預先填入連結）。表單欄位若被重建，需更新以下編號
+const GFORM = {
+  url: 'https://docs.google.com/forms/d/e/1FAIpQLSdJmwpN4YI_mFD7mMpTUxKzpPHIUhdboWw7qQUIN9UqT7RSNQ/viewform',
+  date: 'entry.1692184938', who: 'entry.1138657570', scope: 'entry.2137328229', place: 'entry.1936715460',
+  equip: 'entry.513482749', problem: 'entry.1241252801', work: 'entry.124862251',
+  names: ['Jason', 'Roy', 'Evin', 'Ken', 'Kai', 'Rex'],
+};
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 
 let me = null, users = {}, master = { customers: {}, sites: {}, products: {} }, settings = DEFAULTS;
@@ -145,7 +152,7 @@ function buildPanels() {
     <div class="modal-title">日報已儲存</div>
     <p class="dr-hint" style="margin-bottom:10px">以下文字與群組格式相同，可直接複製貼到 LINE。</p>
     <pre class="dr-line" id="drLineText"></pre>
-    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('drLineModal')">關閉</button><button class="btn btn-primary" id="drCopy">複製文字</button></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('drLineModal')">關閉</button><a class="btn btn-ghost" id="drGform" target="_blank" rel="noopener" style="text-decoration:none">填寫公司日報表</a><button class="btn btn-primary" id="drCopy">複製文字</button></div>
   </div></div>`;
 
   $('panel-fuel').innerHTML = `
@@ -168,8 +175,8 @@ function buildPanels() {
   </div>
   <div class="card">
     <div class="card-title"><span>👤 日報成員設定</span></div>
-    <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值。</p>
-    <table class="data-table"><thead><tr><th>成員</th><th>中文姓名</th><th>所屬辦公室</th><th></th></tr></thead><tbody id="drMembers"></tbody></table>
+    <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值；公司日報表填表人是開啟公司 Google 表單時自動選取的名字。</p>
+    <table class="data-table"><thead><tr><th>成員</th><th>中文姓名</th><th>所屬辦公室</th><th>公司日報表填表人</th><th></th></tr></thead><tbody id="drMembers"></tbody></table>
   </div>`;
 
   bindForm();
@@ -434,8 +441,7 @@ async function submit() {
     }
     if (rec.contact) await update(ref(db, `master/sites/${rec.site}`), { lastContact: rec.contact });
     watchMonth(month);
-    $('drLineText').textContent = lineText(rec);
-    $('drLineModal').classList.add('open');
+    showLine(rec);
     resetForm();
   } catch (e) { $('drErr').textContent = '儲存失敗：' + (e.message || e); }
   finally { $('drSubmit').disabled = false; }
@@ -448,6 +454,33 @@ function lineText(r) {
     `工作時間：${r.start}~${r.end}${r.overnight ? '（隔日）' : ''}\n交通時間：${r.travel || 0}h\n處理事項：\n` +
     (r.items || []).map((x, i) => `${i + 1}. ${x}`).join('\n') + `\n支出：${sum}${notes.length ? '（' + notes.join('、') + '）' : ''}`;
 }
+function scopeOf(prodName) {
+  if (/FMX/i.test(prodName || '')) return '半導體';
+  if (/海辰|中和|kWh/i.test(prodName || '')) return '能源';
+  return '其他';
+}
+function gformUrl(r) {
+  const prod = r.prod ? nm('products', r.prod) : '';
+  const items = r.items || [];
+  const q = new URLSearchParams({ usp: 'pp_url' });
+  q.set(GFORM.date, r.date);
+  const who = users[r.uid] && users[r.uid].formName;
+  if (who) q.set(GFORM.who, who);
+  q.set(GFORM.scope, scopeOf(prod));
+  q.set(GFORM.place, `${nm('customers', r.cust)}_${nm('sites', r.site)}`);
+  if (prod) q.set(GFORM.equip, prod);
+  q.set(GFORM.problem, items.join('；'));
+  q.set(GFORM.work, items.map((x, i) => `${i + 1}. ${x}`).join('\n'));
+  return `${GFORM.url}?${q.toString()}`;
+}
+function showLine(r) {
+  $('drLineText').textContent = lineText(r);
+  const a = $('drGform');
+  a.href = gformUrl(r);
+  a.style.display = r.uid === me.uid ? '' : 'none';
+  $('drLineModal').classList.add('open');
+}
+
 function copyLine() {
   const txt = $('drLineText').textContent;
   const done = () => toast('已複製');
@@ -489,7 +522,7 @@ function renderList() {
       <div class="dr-hint">最後修改：${esc(new Date(r.updatedAt).toLocaleString('zh-TW'))}（${esc(userName(r.updatedBy))}）</div>
       <div class="dr-actions">
         ${mine ? `<button class="btn btn-ghost btn-sm" data-edit="${m}|${id}">修改</button>` : ''}
-        <button class="btn btn-ghost btn-sm" data-copy="${m}|${id}">複製 LINE 文字</button>
+        <button class="btn btn-ghost btn-sm" data-copy="${m}|${id}">LINE 文字／公司日報表</button>
         ${mine ? `<button class="btn btn-danger btn-sm" data-rm="${m}|${id}">刪除</button>` : ''}
       </div></div>`;
   }).join('');
@@ -498,7 +531,7 @@ async function listClick(e) {
   const b = e.target.closest('button'); if (!b) return;
   const [m, id] = (b.dataset.edit || b.dataset.copy || b.dataset.rm || '').split('|');
   if (b.dataset.edit) loadForEdit(m, id);
-  if (b.dataset.copy) { $('drLineText').textContent = lineText(monthData[m][id]); $('drLineModal').classList.add('open'); }
+  if (b.dataset.copy) showLine(monthData[m][id]);
   if (b.dataset.rm && confirm('確定刪除這筆日報？')) { try { await remove(ref(db, `reports/${m}/${id}`)); toast('已刪除'); } catch (er) { toast('刪除失敗：' + er.message); } }
 }
 
@@ -607,6 +640,7 @@ function renderMembers() {
     <td>${esc(u.name)}</td>
     <td><input class="dr-in" data-cname="${uid}" value="${esc(u.cname || '')}" placeholder="${esc(u.name)}"></td>
     <td><select class="dr-in" data-office-of="${uid}">${Object.entries(o).map(([k, x]) => `<option value="${k}" ${(u.office || 'tf') === k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
+    <td><select class="dr-in" data-form-of="${uid}"><option value="">（不帶入）</option>${GFORM.names.map(n => `<option ${u.formName === n ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
     <td><button class="btn btn-primary btn-sm" data-save-member="${uid}">儲存</button></td></tr>`).join('');
   if (!renderMembers.bound) {
     renderMembers.bound = true;
@@ -614,7 +648,8 @@ function renderMembers() {
       const b = e.target.closest('[data-save-member]'); if (!b) return;
       const uid = b.dataset.saveMember;
       const cname = tb.querySelector(`[data-cname="${uid}"]`).value.trim(), office = tb.querySelector(`[data-office-of="${uid}"]`).value;
-      try { await update(ref(db, `users/${uid}`), { cname, office }); toast('已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
+      const formName = tb.querySelector(`[data-form-of="${uid}"]`).value;
+      try { await update(ref(db, `users/${uid}`), { cname, office, formName }); toast('已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
     });
   }
 }
