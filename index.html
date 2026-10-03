@@ -70,9 +70,9 @@
     <div class="nav-tab active" onclick="switchTab('dashboard',this)">📊 總覽</div>
     <div class="nav-tab" data-tab="report" onclick="switchTab('report',this)">📝 工作日報</div>
     <div class="nav-tab" data-tab="fuel" onclick="switchTab('fuel',this)">⛽ 油資／支出</div>
-    <div class="nav-tab" onclick="switchTab('attendance',this)">🕐 出勤打卡</div>
+    <div class="nav-tab jf-hidden" onclick="switchTab('attendance',this)">🕐 出勤打卡</div>
     <div class="nav-tab" onclick="switchTab('inventory',this)">📦 物料管理</div>
-    <div class="nav-tab" onclick="switchTab('calendar',this)">📅 行事曆</div>
+    <div class="nav-tab jf-hidden" onclick="switchTab('calendar',this)">📅 行事曆</div>
     <div class="nav-tab" onclick="switchTab('tickets',this)">🎫 Issue Ticket</div>
     <div class="nav-tab" id="adminTab" onclick="switchTab('admin',this)" style="display:none">⚙️ 管理</div>
   </div>
@@ -82,13 +82,13 @@
     <!-- DASHBOARD -->
     <div class="panel active" id="panel-dashboard">
       <div class="dash-grid">
-        <div class="stat-card gold"><div class="stat-val" id="stat-present">0</div><div class="stat-label">今日出勤</div></div>
+        <div class="stat-card gold jf-hidden"><div class="stat-val" id="stat-present">0</div><div class="stat-label">今日出勤</div></div>
         <div class="stat-card red"><div class="stat-val" id="stat-tickets-open">0</div><div class="stat-label">待處理票單</div></div>
         <div class="stat-card blue"><div class="stat-val" id="stat-tickets-progress">0</div><div class="stat-label">進行中票單</div></div>
         <div class="stat-card green"><div class="stat-val" id="stat-inv-ok">0</div><div class="stat-label">庫存充足</div></div>
       </div>
       <div class="card"><div class="card-title"><span>🎫 最新票單</span></div><div id="dash-recent-tickets"><div class="empty-state"><div class="icon">⏳</div>載入中...</div></div></div>
-      <div class="card"><div class="card-title"><span>🕐 今日出勤</span></div>
+      <div class="card jf-hidden"><div class="card-title"><span>🕐 今日出勤</span></div>
         <table class="data-table"><thead><tr><th>成員</th><th>上班</th><th>下班</th><th>狀態</th></tr></thead><tbody id="dash-attendance"></tbody></table>
       </div>
     </div>
@@ -211,7 +211,7 @@
         <table class="data-table"><thead><tr><th>姓名</th><th>Email</th><th>權限</th><th>操作</th></tr></thead><tbody id="userList"></tbody></table>
       </div>
       <div id="drAdminHost"></div>
-      <div class="card">
+      <div class="card jf-hidden">
         <div class="card-title"><span>📅 假日管理</span></div>
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">依據行政院人事行政總處官方公告管理台灣國定假日，每年更新一次</p>
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
@@ -588,14 +588,17 @@ function startClock() {
   tick(); setInterval(tick, 1000);
 }
 
+// v1.7.1：出勤打卡、行事曆已隱藏，不再讀取其資料；改為 true 即可恢復（需一併移除 jf-hidden）
+const ENABLE_ATT_CAL = false;
+
 function startListeners() {
   onValue(ref(db, 'tickets'), s => { tickets = s.val() || {}; renderTickets(tickets); renderDashboard(currentUser, tickets, inventory, attendance, users); });
   onValue(ref(db, 'inventory'), s => { inventory = s.val() || {}; renderInventory(currentUser, inventory); renderDashboard(currentUser, tickets, inventory, attendance, users); });
-  onValue(ref(db, 'events'), s => {
+  if (ENABLE_ATT_CAL) onValue(ref(db, 'events'), s => {
     events = s.val() || {};
     if (currentTab === 'calendar') renderCalendar(events);
   });
-  onValue(ref(db, 'attendance'), s => {
+  if (ENABLE_ATT_CAL) onValue(ref(db, 'attendance'), s => {
     attendance = s.val() || {};
     renderAttPunch(currentUser, attendance, events);
     const selUid = document.getElementById('attMemberSel')?.value;
@@ -616,8 +619,10 @@ function startListeners() {
       if (cur) sel.value = cur;
     }
   });
-  listenHolidays();
-  if (currentUser.role === 'admin') initHolidayAdmin();
+  if (ENABLE_ATT_CAL) {
+    listenHolidays();
+    if (currentUser.role === 'admin') initHolidayAdmin();
+  }
 }
 
 // ── INIT（v1.6：由 Firebase Authentication 判斷登入狀態）──

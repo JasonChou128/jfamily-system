@@ -59,3 +59,12 @@ reports 的 exps 新增 cat（類別）欄位；舊資料未分類者歸入「�
 | database.rules.json | 新增 distCache 規則 |
 
 新增資料節點 distCache。原規劃 v1.7 每日彙整 Email 順延為 v1.8。
+
+## v1.7.1：隱藏出勤打卡與行事曆（2026-10-03）
+
+| 檔案 | 修改內容 |
+|---|---|
+| index.html | 導覽列隱藏「出勤打卡」、「行事曆」；總覽隱藏「今日出勤」統計與今日出勤表；管理頁隱藏「假日管理」；不再讀取 attendance、events、holidays 資料（ENABLE_ATT_CAL = false） |
+| css/style.css | 新增 jf-hidden 樣式；工單的「加入行事曆」按鈕一併隱藏 |
+
+僅隱藏不刪除：程式與資料庫資料全部保留，日後將 ENABLE_ATT_CAL 改為 true 並移除 jf-hidden 即可恢復。
