@@ -17,6 +17,7 @@ const GFORM = {
   equip: 'entry.513482749', problem: 'entry.1241252801', work: 'entry.124862251',
   names: ['Jason', 'Roy', 'Evin', 'Ken', 'Kai', 'Rex'],
 };
+const EXP_CATS = ['停車費', '住宿費', '運費', '餐費', '公共交通運輸費', '五金', '零件/耗材', '其他'];
 const EXCELJS_URL = 'https://cdn.jsdelivr.net/npm/exceljs@4.4.0/dist/exceljs.min.js';
 
 let me = null, users = {}, master = { customers: {}, sites: {}, products: {} }, settings = DEFAULTS;
@@ -53,7 +54,7 @@ export function initDailyReport(currentUser) {
   onValue(ref(db, 'master'), s => {
     const v = s.val() || {};
     master = { customers: v.customers || {}, sites: v.sites || {}, products: v.products || {} };
-    refreshSelects(); renderMaster(); renderList(); renderFuel();
+    refreshSelects(); renderMaster(); renderList(); renderFuel(); renderExpense();
   });
   onValue(ref(db, 'settings'), s => { settings = { ...DEFAULTS, ...(s.val() || {}) }; if (route) renderRoute(); renderFuel(); });
   onValue(ref(db, 'exportLog'), s => { exportLog = s.val() || {}; renderFuel(); });
@@ -65,7 +66,7 @@ export function setUsers(u) {
   users = u || {};
   if (me && users[me.uid]) me = { ...me, ...users[me.uid] };
   if (route && !editing && !route.stops.length && route.origin.type === 'office') { route.origin = { type: 'office', office: userOffice(me.uid) }; if ($('drDrive') && $('drDrive').checked) renderRoute(); }
-  fillUserFilters(); renderMembers(); renderList(); renderFuel();
+  fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense();
 }
 
 export function newReport() { resetForm(); $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -75,7 +76,7 @@ function watchMonth(m) {
   unsubMonth[m] = onValue(ref(db, `reports/${m}`), s => {
     monthData[m] = s.val() || {};
     if (route) renderRoute();
-    renderList(); renderFuel();
+    renderList(); renderFuel(); renderExpense();
   });
 }
 
@@ -129,10 +130,10 @@ function buildPanels() {
     <ol class="dr-items" id="drItems"></ol>
     <button type="button" class="btn btn-ghost btn-sm" id="drAddItem">新增一條</button>
 
-    <div class="dr-sec">支出</div>
+    <div class="dr-sec">雜項支出</div>
     <div id="drExps"></div>
-    <button type="button" class="btn btn-ghost btn-sm" id="drAddExp">新增一筆支出</button>
-    <div class="dr-hint">停車費、過路費等請在說明欄註明。油資由系統計算，不用填在這裡。</div>
+    <button type="button" class="btn btn-ghost btn-sm" id="drAddExp">新增一筆雜項支出</button>
+    <div class="dr-hint">油資由系統依路線計算，不用填在雜項支出。</div>
 
     <div class="dr-err" id="drErr" role="alert"></div>
     <div class="modal-actions" style="justify-content:flex-start">
@@ -164,6 +165,14 @@ function buildPanels() {
     </div>
     <div id="drFuelWarn"></div>
     <div id="drFuelOut"></div>
+  </div>
+  <div class="card">
+    <div class="card-title"><span>💰 雜項支出報表</span><button class="btn btn-primary btn-sm" id="drExpXlsx">匯出 Excel</button></div>
+    <div class="dr-grid">
+      <div class="form-group"><label>月份</label><input type="month" id="drExpMonth"></div>
+      <div class="form-group"><label>人員</label><select id="drExpUser"></select></div>
+    </div>
+    <div id="drExpOut"></div>
   </div>`;
 
   const adminHost = $('drAdminHost');
@@ -181,7 +190,10 @@ function buildPanels() {
 
   bindForm();
   const m = ym(today());
-  $('drListMonth').value = m; $('drFuelMonth').value = m;
+  $('drListMonth').value = m; $('drFuelMonth').value = m; $('drExpMonth').value = m;
+  $('drExpMonth').onchange = () => { watchMonth($('drExpMonth').value); renderExpense(); };
+  $('drExpUser').onchange = renderExpense;
+  $('drExpXlsx').onclick = exportExpense;
   $('drListMonth').onchange = () => { watchMonth($('drListMonth').value); renderList(); };
   $('drListUser').onchange = renderList;
   $('drFuelMonth').onchange = () => { watchMonth($('drFuelMonth').value); renderFuel(); };
@@ -191,15 +203,15 @@ function buildPanels() {
 }
 
 function fillUserFilters() {
-  ['drListUser', 'drFuelUser'].forEach(id => {
+  ['drListUser', 'drFuelUser', 'drExpUser'].forEach(id => {
     const sel = $(id); if (!sel || !me) return;
     const cur = sel.value;
     const list = isAdmin() ? Object.keys(users) : [me.uid];
-    const all = id === 'drListUser' && isAdmin() ? '<option value="">全部人員</option>' : '';
+    const all = (id === 'drListUser' || id === 'drExpUser') && isAdmin() ? '<option value="">全部人員</option>' : '';
     sel.innerHTML = all + list.filter(uid => users[uid] || uid === me.uid)
       .map(uid => `<option value="${uid}">${esc(uid === me.uid ? me.name : userName(uid))}</option>`).join('');
     if (cur !== undefined && [...sel.options].some(o => o.value === cur)) sel.value = cur;
-    else sel.value = id === 'drListUser' && isAdmin() ? '' : me.uid;
+    else sel.value = (id === 'drListUser' || id === 'drExpUser') && isAdmin() ? '' : me.uid;
   });
 }
 
@@ -245,9 +257,10 @@ function bindForm() {
   $('drItems').addEventListener('click', e => { const b = e.target.closest('[data-item-del]'); if (b) { items.splice(+b.dataset.itemDel, 1); renderItems(); } });
   $('drItems').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.dataset.item !== undefined) { e.preventDefault(); $('drAddItem').click(); } });
   $('drAddItem').onclick = () => { items.push(''); renderItems(); const l = $('drItems').querySelectorAll('input'); l[l.length - 1].focus(); };
-  $('drExps').addEventListener('input', e => { const t = e.target; if (t.dataset.expAmt !== undefined) exps[+t.dataset.expAmt].amt = t.value; if (t.dataset.expNote !== undefined) exps[+t.dataset.expNote].note = t.value; });
+  $('drExps').addEventListener('input', e => { const t = e.target; if (t.dataset.expAmt !== undefined) exps[+t.dataset.expAmt].amt = t.value; if (t.dataset.expNote !== undefined) exps[+t.dataset.expNote].note = t.value; if (t.dataset.expCat !== undefined) exps[+t.dataset.expCat].cat = t.value; });
+  $('drExps').addEventListener('change', e => { const t = e.target; if (t.dataset.expCat !== undefined) exps[+t.dataset.expCat].cat = t.value; });
   $('drExps').addEventListener('click', e => { const b = e.target.closest('[data-exp-del]'); if (b) { exps.splice(+b.dataset.expDel, 1); renderExps(); } });
-  $('drAddExp').onclick = () => { exps.push({ amt: '', note: '' }); renderExps(); };
+  $('drAddExp').onclick = () => { exps.push({ cat: '', amt: '', note: '' }); renderExps(); };
   $('drSubmit').onclick = submit;
   $('drReset').onclick = () => { if (confirm('確定清空目前填寫的內容？')) resetForm(); };
   $('drCopy').onclick = copyLine;
@@ -375,7 +388,7 @@ function renderItems() {
   $('drItems').innerHTML = items.map((t, i) => `<li><input data-item="${i}" value="${esc(t)}">${items.length > 1 ? `<button type="button" class="btn btn-danger btn-sm" data-item-del="${i}">刪除</button>` : ''}</li>`).join('');
 }
 function renderExps() {
-  $('drExps').innerHTML = exps.map((x, i) => `<div class="dr-exp"><input type="number" min="0" step="1" inputmode="numeric" placeholder="金額" data-exp-amt="${i}" value="${esc(x.amt)}"><input placeholder="說明，例如停車費" data-exp-note="${i}" value="${esc(x.note)}"><button type="button" class="btn btn-danger btn-sm" data-exp-del="${i}">刪除</button></div>`).join('');
+  $('drExps').innerHTML = exps.map((x, i) => `<div class="dr-exp"><select data-exp-cat="${i}"><option value="">類別</option>${EXP_CATS.map(c => `<option ${x.cat === c ? 'selected' : ''}>${c}</option>`).join('')}</select><input type="number" min="0" step="1" inputmode="numeric" placeholder="金額" data-exp-amt="${i}" value="${esc(x.amt)}"><input placeholder="說明（選填）" data-exp-note="${i}" value="${esc(x.note)}"><button type="button" class="btn btn-danger btn-sm" data-exp-del="${i}">刪除</button></div>`).join('');
 }
 
 function resetForm() {
@@ -406,7 +419,11 @@ function validate() {
       const n = parseFloat(route.legs[i]); if (isNaN(n) || n < 0) return `第 ${i + 1} 段請填公里數`;
     }
   }
-  for (let j = 0; j < exps.length; j++) { if (exps[j].amt === '' && exps[j].note === '') continue; if (isNaN(parseFloat(exps[j].amt))) return `支出第 ${j + 1} 筆請填金額`; }
+  for (let j = 0; j < exps.length; j++) {
+    const x = exps[j]; if (x.amt === '' && x.note === '' && !x.cat) continue;
+    if (!x.cat) return `雜項支出第 ${j + 1} 筆請選類別`;
+    if (isNaN(parseFloat(x.amt))) return `雜項支出第 ${j + 1} 筆請填金額`;
+  }
   return '';
 }
 
@@ -420,7 +437,7 @@ async function submit() {
     start: $('drStart').value, end: $('drEnd').value, overnight: $('drOvernight').checked, travel: parseFloat($('drTravel').value) || 0,
     drive, route: drive ? JSON.parse(JSON.stringify(route)) : null,
     items: items.map(x => x.trim()).filter(Boolean),
-    exps: exps.filter(x => x.amt !== '' || x.note !== '').map(x => ({ amt: parseFloat(x.amt) || 0, note: x.note.trim() })),
+    exps: exps.filter(x => x.amt !== '' || x.note !== '' || x.cat).map(x => ({ cat: x.cat, amt: parseFloat(x.amt) || 0, note: x.note.trim() })),
     updatedAt: now, updatedBy: me.uid,
   };
   if (drive) rec.route.legs = rec.route.legs.map(x => parseFloat(x) || 0);
@@ -449,7 +466,7 @@ async function submit() {
 
 function lineText(r) {
   const sum = (r.exps || []).reduce((a, x) => a + (parseFloat(x.amt) || 0), 0);
-  const notes = (r.exps || []).filter(x => x.note).map(x => `${x.note} ${x.amt}`);
+  const notes = (r.exps || []).map(x => `${x.cat || x.note || '其他'}${x.cat && x.note ? '(' + x.note + ')' : ''} ${x.amt}`);
   return `日期：${r.date.replace(/-/g, '/')}\n人員：${userName(r.uid)}\n客戶：${nm('customers', r.cust)}\n案場：${nm('sites', r.site)}\n產品：${nm('products', r.prod)}\n` +
     `工作時間：${r.start}~${r.end}${r.overnight ? '（隔日）' : ''}\n交通時間：${r.travel || 0}h\n處理事項：\n` +
     (r.items || []).map((x, i) => `${i + 1}. ${x}`).join('\n') + `\n支出：${sum}${notes.length ? '（' + notes.join('、') + '）' : ''}`;
@@ -500,7 +517,7 @@ function loadForEdit(month, id) {
   route = r.drive && r.route ? JSON.parse(JSON.stringify({ stops: [], legs: [], ...r.route })) : newRoute();
   route.legs = (route.legs || []).map(String);
   items = (r.items || []).slice(); if (!items.length) items = [''];
-  exps = (r.exps || []).map(x => ({ amt: String(x.amt), note: x.note || '' }));
+  exps = (r.exps || []).map(x => ({ cat: x.cat || (x.note ? '其他' : ''), amt: String(x.amt), note: x.note || '' }));
   renderItems(); renderExps(); showHours(); if (r.drive) renderRoute();
   $('drSubmit').textContent = '儲存修改'; $('drFormTitle').textContent = '✏️ 修改工作日報';
   $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -613,6 +630,99 @@ async function exportXlsx() {
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${yyyymm}_出差油資_${userName(uid)}.xlsx`;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
   try { await set(ref(db, `exportLog/${uid}_${m}`), new Date().toISOString()); } catch {}
+}
+
+// ═════════════ 雜項支出報表 ═════════════
+const catOf = x => EXP_CATS.includes(x.cat) ? x.cat : '其他';
+function expenseData(m, uidFilter) {
+  const rs = Object.values(monthData[m] || {}).filter(r => !uidFilter || r.uid === uidFilter);
+  const uids = [...new Set(rs.map(r => r.uid))].sort((a, b) => userName(a).localeCompare(userName(b), 'zh-Hant'));
+  return uids.map(uid => {
+    const lines = [];
+    rs.filter(r => r.uid === uid).sort((a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || ''))
+      .forEach(r => (r.exps || []).forEach(x => { if (parseFloat(x.amt)) lines.push({ date: r.date, cust: nm('customers', r.cust), site: nm('sites', r.site), cat: catOf(x), note: x.note || '', amt: parseFloat(x.amt) || 0 }); }));
+    const byCat = Object.fromEntries(EXP_CATS.map(c => [c, 0]));
+    lines.forEach(x => { byCat[x.cat] += x.amt; });
+    return { uid, lines, byCat, expSum: lines.reduce((a, x) => a + x.amt, 0) };
+  }).filter(p => p.lines.length);
+}
+function renderExpense() {
+  const out = $('drExpOut'); if (!out || !me) return;
+  const m = $('drExpMonth').value, u = isAdmin() ? $('drExpUser').value : me.uid;
+  if (!monthData[m]) { out.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
+  const ps = expenseData(m, u);
+  if (!ps.length) { out.innerHTML = `<div class="empty-state"><div class="icon">💰</div>${esc(m)} 沒有雜項支出紀錄</div>`; return; }
+  const n = v => v ? Math.round(v).toLocaleString() : '';
+  const R = 'style="text-align:right"';
+  const tot = c => ps.reduce((a, p) => a + p.byCat[c], 0), all = ps.reduce((a, p) => a + p.expSum, 0);
+  let h = `<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>人員</th>${EXP_CATS.map(c => `<th ${R}>${c}</th>`).join('')}<th ${R}>合計</th></tr></thead><tbody>` +
+    ps.map(p => `<tr><td>${esc(userName(p.uid))}</td>${EXP_CATS.map(c => `<td ${R}>${n(p.byCat[c])}</td>`).join('')}<td ${R}>${n(p.expSum)}</td></tr>`).join('') +
+    (ps.length > 1 ? `<tr class="dr-sum"><td>合計</td>${EXP_CATS.map(c => `<td ${R}>${n(tot(c))}</td>`).join('')}<td ${R}>NT$ ${n(all)}</td></tr>` : '') +
+    `</tbody></table></div>`;
+  ps.forEach(p => {
+    h += `<div class="dr-sec">${esc(userName(p.uid))} 雜項支出明細</div><div style="overflow-x:auto"><table class="data-table"><thead><tr><th>日期</th><th>客戶／案場</th><th>類別</th><th>說明</th><th ${R}>金額</th></tr></thead><tbody>` +
+      p.lines.map(x => `<tr><td>${esc(x.date.slice(5).replace('-', '/'))}</td><td>${esc(x.cust)}／${esc(x.site)}</td><td>${esc(x.cat)}</td><td>${esc(x.note)}</td><td ${R}>${n(x.amt)}</td></tr>`).join('') + '</tbody></table></div>';
+  });
+  out.innerHTML = h;
+}
+function sheetName(s, used) {
+  let b = String(s).replace(/[\\\/\?\*\[\]:]/g, '_').slice(0, 31) || '人員', n = b, i = 2;
+  while (used.has(n)) n = b.slice(0, 28) + '_' + (i++);
+  used.add(n); return n;
+}
+async function exportExpense() {
+  const m = $('drExpMonth').value, u = isAdmin() ? $('drExpUser').value : me.uid;
+  const ps = expenseData(m, u);
+  if (!ps.length) { toast('這個月份沒有可匯出的資料'); return; }
+  try { await loadExcelJS(); } catch (e) { toast(e.message); return; }
+  const y = m.slice(0, 4), mo = +m.slice(5, 7), yyyymm = m.replace('-', '');
+  const F = '微软雅黑', thin = { style: 'thin' }, box = { top: thin, bottom: thin, left: thin, right: thin };
+  const head = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } }, money = '#,##0;-#,##0;"-"';
+  const wb = new ExcelJS.Workbook(), used = new Set(['雜項支出總表']);
+  const title = (ws, text, cols) => { ws.mergeCells(1, 1, 1, cols); Object.assign(ws.getCell(1, 1), { value: text, font: { name: F, size: 16, bold: true }, alignment: { horizontal: 'center', vertical: 'middle' } }); ws.getRow(1).height = 32; };
+  const header = (ws, row, labels) => { ws.getRow(row).height = 30; labels.forEach((h, i) => Object.assign(ws.getCell(row, i + 1), { value: h, font: { name: F, size: 10, bold: true, color: { argb: 'FFFFFFFF' } }, fill: head, alignment: { horizontal: 'center', vertical: 'middle', wrapText: true }, border: box })); };
+  const cell = (ws, r, c, v, fmt, align, bold) => { const x = ws.getCell(r, c); Object.assign(x, { value: v, font: { name: F, size: 10, bold: !!bold }, border: box, alignment: { vertical: 'middle', horizontal: align || 'left', wrapText: true } }); if (fmt) x.numFmt = fmt; return x; };
+  const col = i => String.fromCharCode(65 + i);
+  const names = {}; ps.forEach(p => { names[p.uid] = sheetName(userName(p.uid), used); });
+
+  // 總表：人員 × 類別
+  const sum = wb.addWorksheet('雜項支出總表');
+  const nc = EXP_CATS.length + 2;
+  title(sum, `竑瑞科技 ${y}.${mo}月份雜項支出總表`, nc);
+  sum.getColumn(1).width = 16; EXP_CATS.forEach((c, i) => { sum.getColumn(i + 2).width = c.length > 4 ? 14 : 11; }); sum.getColumn(nc).width = 13;
+  header(sum, 3, ['人員', ...EXP_CATS, '合計']);
+  ps.forEach((p, i) => {
+    const r = 4 + i, sn = names[p.uid].replace(/'/g, "''"), last = 3 + p.lines.length;
+    cell(sum, r, 1, userName(p.uid));
+    EXP_CATS.forEach((c, j) => cell(sum, r, j + 2, { formula: `SUMIF('${sn}'!D4:D${last},"${c}",'${sn}'!F4:F${last})` }, money, 'right'));
+    cell(sum, r, nc, { formula: `SUM(B${r}:${col(nc - 2)}${r})` }, money, 'right', true);
+  });
+  const tr = 4 + ps.length;
+  cell(sum, tr, 1, '合計', null, 'left', true);
+  for (let c = 2; c <= nc; c++) cell(sum, tr, c, { formula: `SUM(${col(c - 1)}4:${col(c - 1)}${tr - 1})` }, money, 'right', true);
+  Object.assign(sum.getCell(tr + 2, 1), { value: '不含油資（油資請見出差油資報表）；明細見各人員工作表。', font: { name: F, size: 9, color: { argb: 'FF666666' } } });
+
+  // 各人明細
+  ps.forEach(p => {
+    const ws = wb.addWorksheet(names[p.uid]);
+    title(ws, `${userName(p.uid)} ${y}.${mo}月份雜項支出明細`, 6);
+    [12, 16, 18, 16, 30, 12].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
+    header(ws, 3, ['日期', '客戶', '案場', '類別', '說明', '金額']);
+    p.lines.forEach((x, i) => {
+      const r = 4 + i;
+      cell(ws, r, 1, new Date(Date.UTC(+x.date.slice(0, 4), +x.date.slice(5, 7) - 1, +x.date.slice(8, 10))), 'm"月"d"日"', 'center');
+      cell(ws, r, 2, x.cust); cell(ws, r, 3, x.site); cell(ws, r, 4, x.cat, null, 'center'); cell(ws, r, 5, x.note); cell(ws, r, 6, x.amt, money, 'right');
+    });
+    const r = 4 + p.lines.length;
+    cell(ws, r, 5, '合計', null, 'right', true);
+    cell(ws, r, 6, { formula: `SUM(F4:F${r - 1})` }, money, 'right', true);
+  });
+
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = `${yyyymm}_雜項支出_${u ? userName(u) : '全員'}.xlsx`;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 
 // ═════════════ 管理：主檔與成員 ═════════════
