@@ -48,3 +48,14 @@ reports 的 exps 新增 cat（類別）欄位；舊資料未分類者歸入「�
 |---|---|
 | js/dailyreport.js | 管理頁「日報成員設定」新增填表人名單欄位，管理員可直接增減名字（存於 settings/gformNames），不需修改程式；未設定時沿用預設六人 |
 | css/style.css | 名單欄位樣式 |
+
+## v1.7：公里數自動計算（2026-10-03）
+
+| 檔案 | 修改內容 |
+|---|---|
+| js/dailyreport.js | 路線區新增「自動計算公里」：以 Google Routes API 計算空白路段的行車公里數與時間，全部路段皆為自動計算時，行車時間加總帶入交通時間（以 0.5 小時為單位，可修改）；同一路段結果存於 distCache，之後任何人走相同路段直接沿用，不再呼叫 Google；地址缺漏或不精確的路段會列出請手動輸入 |
+| js/dailyreport.js（管理頁） | 「客戶／案場／產品」的案場新增「地址」按鈕，管理員可修改地址，支援門牌地址或 Google Plus Code |
+| css/style.css | 自動計算按鈕與「自動・約 N 分鐘」標示樣式 |
+| database.rules.json | 新增 distCache 規則 |
+
+新增資料節點 distCache。原規劃 v1.7 每日彙整 Email 順延為 v1.8。
