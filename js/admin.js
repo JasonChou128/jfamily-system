@@ -71,11 +71,13 @@ export function renderUserList(currentUser, users) {
         <span id="email-display-${uid}">${u.email}</span>
         <input id="email-input-${uid}" value="${u.email}" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:13px;width:160px">
       </td>
-      <td><span class="role-badge ${u.role}">${u.role === 'admin' ? '管理者' : '工程師'}</span></td>
+      <td><span class="role-badge ${u.role}">${u.role === 'admin' ? '管理者' : u.role === 'pending' ? '待核准' : '工程師'}</span></td>
       <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
         <button id="edit-btn-${uid}" class="btn btn-ghost btn-sm" onclick="window.toggleEditUser('${uid}')">編輯</button>
         <button id="save-btn-${uid}" class="btn btn-primary btn-sm" style="display:none" onclick="window.saveUserEdit('${uid}')">儲存</button>
-        <button class="btn btn-ghost btn-sm" onclick="window.toggleAdmin('${uid}','${u.role === 'admin' ? 'eng' : 'admin'}')">${u.role === 'admin' ? '降為工程師' : '升為管理者'}</button>
+        ${u.role === 'pending'
+          ? `<button class="btn btn-primary btn-sm" onclick="window.toggleAdmin('${uid}','eng')">核准</button>`
+          : `<button class="btn btn-ghost btn-sm" onclick="window.toggleAdmin('${uid}','${u.role === 'admin' ? 'eng' : 'admin'}')">${u.role === 'admin' ? '降為工程師' : '升為管理者'}</button>`}
         ${u.email !== currentUser.email ? `<button class="btn btn-danger btn-sm" onclick="window.deleteUser('${uid}')">刪除</button>` : ''}
       </td>
     </tr>`).join('');
@@ -83,7 +85,7 @@ export function renderUserList(currentUser, users) {
 
 export function toggleEditUser(uid) {
   const isEditing = document.getElementById('name-input-' + uid).style.display !== 'none';
-  ['name', 'email'].forEach(f => {
+  ['name'].forEach(f => {
     document.getElementById(`${f}-display-${uid}`).style.display = isEditing ? '' : 'none';
     document.getElementById(`${f}-input-${uid}`).style.display = isEditing ? 'none' : '';
   });
@@ -93,9 +95,9 @@ export function toggleEditUser(uid) {
 
 export async function saveUserEdit(uid) {
   const name = document.getElementById('name-input-' + uid).value.trim();
-  const email = document.getElementById('email-input-' + uid).value.trim().toLowerCase();
-  if (!name || !email) { alert('姓名和Email不能為空'); return; }
-  await update(ref(db, `users/${uid}`), { name, email });
+  if (!name) { alert('姓名不能為空'); return; }
+  // v1.6：Email 為登入帳號，改由 Firebase 主控台管理，此處只改姓名
+  await update(ref(db, `users/${uid}`), { name });
   toggleEditUser(uid);
 }
 
@@ -104,7 +106,8 @@ export async function toggleAdmin(uid, role) {
 }
 
 export async function deleteUser(uid) {
-  if (confirm('確定刪除此帳號？')) await remove(ref(db, `users/${uid}`));
+  // v1.6：此處只刪除系統資料；登入帳號需另至 Firebase 主控台 Authentication 刪除
+  if (confirm('確定刪除此帳號？\n（登入帳號請另至 Firebase 主控台刪除）')) await remove(ref(db, `users/${uid}`));
 }
 
 // ── HOLIDAY MANAGEMENT ──

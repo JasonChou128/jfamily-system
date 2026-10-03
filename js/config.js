@@ -1,5 +1,7 @@
+// J Family v1.6 — 新增 Firebase Authentication
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getDatabase } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getAuth } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyCpl7kS9SJ3T14YtFReL0woTnie2Bsc_uc",
@@ -13,6 +15,7 @@ const firebaseConfig = {
 
 const fbApp = initializeApp(firebaseConfig);
 export const db = getDatabase(fbApp);
+export const auth = getAuth(fbApp);
 
 export const TW_HOLIDAYS = {
   '2026-01-01':'元旦','2026-01-02':'補假',
