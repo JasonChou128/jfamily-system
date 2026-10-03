@@ -14,7 +14,7 @@ const DEFAULTS = {
 const GFORM = {
   url: 'https://docs.google.com/forms/d/e/1FAIpQLSdJmwpN4YI_mFD7mMpTUxKzpPHIUhdboWw7qQUIN9UqT7RSNQ/viewform',
   date: 'entry.1692184938', who: 'entry.1138657570', scope: 'entry.2137328229', place: 'entry.1936715460',
-  equip: 'entry.513482749', problem: 'entry.1241252801', work: 'entry.124862251',
+  equip: 'entry.513482749', problem: 'entry.1241252801', work: 'entry.124862251', due: 'entry.423160338',
   names: ['Jason', 'Roy', 'Evin', 'Ken', 'Kai', 'Rex'],   // 預設值；管理頁可維護（settings/gformNames）
 };
 const gformNames = () => (Array.isArray(settings.gformNames) && settings.gformNames.length ? settings.gformNames : GFORM.names);
@@ -204,6 +204,10 @@ function buildPanels() {
   <div class="card">
     <div class="card-title"><span>👤 日報成員設定</span></div>
     <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值；公司日報表填表人是開啟公司 Google 表單時自動選取的名字。</p>
+    <div class="dr-gnames">
+      <div class="form-group" style="flex:1;margin:0"><label>每日彙整信收件人（以逗號分隔，留空則只寄給 Jason）</label><input class="dr-in" id="drDigestTo" placeholder="jason.chou@gbgtek.com.tw"></div>
+      <button class="btn btn-primary btn-sm" id="drDigestToSave">儲存收件人</button>
+    </div>
     <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>Google 路線金鑰（自動計算公里用）　<span id="drGKeyState" style="text-transform:none;letter-spacing:0"></span></label><input class="dr-in" id="drGKey" type="password" autocomplete="off" placeholder="輸入新金鑰以設定或更換"></div>
       <button class="btn btn-primary btn-sm" id="drGKeySave">儲存金鑰</button>
@@ -584,12 +588,18 @@ async function submit() {
   finally { $('drSubmit').disabled = false; }
 }
 
+// 處理事項加註狀態：待追蹤事項後加「（待追蹤，預計 10/05）」
+function itemLabel(r, i) {
+  const m2 = (r.itemMeta || [])[i], x = (r.items || [])[i];
+  if (!m2 || m2.st !== 'open') return x;
+  return `${x}（${m2.closedAt ? '已結案' : '待追蹤'}${m2.due && !m2.closedAt ? '，預計 ' + m2.due.slice(5).replace('-', '/') : ''}）`;
+}
 function lineText(r) {
   const sum = (r.exps || []).reduce((a, x) => a + (parseFloat(x.amt) || 0), 0);
   const notes = (r.exps || []).map(x => `${x.cat || x.note || '其他'}${x.cat && x.note ? '(' + x.note + ')' : ''} ${x.amt}`);
   return `日期：${r.date.replace(/-/g, '/')}\n人員：${userName(r.uid)}\n客戶：${nm('customers', r.cust)}\n案場：${nm('sites', r.site)}\n產品：${nm('products', r.prod)}\n` +
     `工作時間：${r.start}~${r.end}${r.overnight ? '（隔日）' : ''}\n交通時間：${r.travel || 0}h\n處理事項：\n` +
-    (r.items || []).map((x, i) => `${i + 1}. ${x}`).join('\n') + `\n支出：${sum}${notes.length ? '（' + notes.join('、') + '）' : ''}`;
+    (r.items || []).map((x, i) => `${i + 1}. ${itemLabel(r, i)}`).join('\n') + `\n支出：${sum}${notes.length ? '（' + notes.join('、') + '）' : ''}`;
 }
 function scopeOf(prodName) {
   if (/FMX/i.test(prodName || '')) return '半導體';
@@ -606,8 +616,11 @@ function gformUrl(r) {
   q.set(GFORM.scope, scopeOf(prod));
   q.set(GFORM.place, `${nm('customers', r.cust)}_${nm('sites', r.site)}`);
   if (prod) q.set(GFORM.equip, prod);
-  q.set(GFORM.problem, items.join('；'));
-  q.set(GFORM.work, items.map((x, i) => `${i + 1}. ${x}`).join('\n'));
+  q.set(GFORM.problem, items.map((x, i) => itemLabel(r, i)).join('；'));
+  q.set(GFORM.work, items.map((x, i) => `${i + 1}. ${itemLabel(r, i)}`).join('\n'));
+  const dues = items.map((x, i) => [i, (r.itemMeta || [])[i]]).filter(([, m2]) => m2 && m2.st === 'open' && !m2.closedAt)
+    .map(([i, m2]) => `第${i + 1}項 ${m2.due ? m2.due.replace(/-/g, '/') : '未定'}`);
+  if (dues.length) q.set(GFORM.due, dues.join('；'));
   return `${GFORM.url}?${q.toString()}`;
 }
 function showLine(r) {
@@ -938,10 +951,18 @@ function renderMembers() {
   const tb = $('drMembers'); if (!tb || !isAdmin()) return;
   const gi = $('drGNames');
   if (gi && document.activeElement !== gi) gi.value = gformNames().join(', ');
+  const dt = $('drDigestTo');
+  if (dt && document.activeElement !== dt) dt.value = (settings.digestTo || []).join(', ');
   const gs = $('drGKeyState'), k = gmapsKey();
   if (gs) gs.textContent = k ? `已設定（${k.slice(0, 4)}••••••${k.slice(-4)}）` : '尚未設定';
   if (!renderMembers.gbound) {
     renderMembers.gbound = true;
+    $('drDigestToSave').onclick = async () => {
+      const list = [...new Set($('drDigestTo').value.split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
+      const bad = list.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+      if (bad.length) { toast('Email 格式不正確：' + bad.join('、')); return; }
+      try { await set(ref(db, 'settings/digestTo'), list); toast(list.length ? `收件人已儲存（${list.length} 位）` : '已清空，將只寄給 Jason'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
     $('drGKeySave').onclick = async () => {
       const v = $('drGKey').value.trim();
       if (!v) { toast('請輸入金鑰'); return; }
