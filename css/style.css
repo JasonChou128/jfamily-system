@@ -349,3 +349,21 @@ body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: va
 
 /* v1.7.1 隱藏不使用的功能（出勤打卡、行事曆）；程式與資料保留，移除此 class 即可恢復 */
 .jf-hidden, .act-cal { display: none !important; }
+/* v1.9 待追蹤 */
+.dr-items li { flex-wrap: wrap; }
+.dr-items li > input[data-item] { flex: 1; min-width: 0; }
+.dr-chip { font-size: 12px; padding: 4px 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface2); color: var(--text-muted); cursor: pointer; white-space: nowrap; font-family: inherit; }
+.dr-chip.open { border-color: var(--accent); color: var(--accent); background: rgba(232,193,74,.12); font-weight: 700; }
+.dr-chip.closed { border-color: var(--accent3); color: var(--accent3); }
+.dr-ol .dr-chip { cursor: default; padding: 1px 8px; font-size: 11px; }
+.dr-due { flex-basis: 100%; display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--accent); margin-left: 2em; }
+#panel-report .dr-due input { width: auto; padding: 4px 8px; }
+.dr-siteopen { background: rgba(232,193,74,.08); border: 1px solid var(--accent); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; font-size: 13px; }
+.dr-siteopen b { color: var(--accent); }
+.dr-siteopen-row { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding-top: 8px; }
+.dr-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-bottom: 14px; }
+.dr-stats div { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px; text-align: center; }
+.dr-stats b { display: block; font-size: 24px; color: var(--accent); }
+.dr-stats span { font-size: 12px; color: var(--text-muted); }
+.dr-stats .warn b { color: var(--accent2); }
+.dr-overdue { border-color: var(--accent2); }
