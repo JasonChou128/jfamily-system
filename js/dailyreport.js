@@ -38,6 +38,13 @@ const isAdmin = () => me && me.role === 'admin';
 const rate = () => Number(settings.rate) || DEFAULTS.rate;
 const offices = () => ({ ...DEFAULTS.offices, ...(settings.offices || {}) });
 const userOffice = uid => (users[uid] && users[uid].office) || (me && uid === me.uid && me.office) || 'tf';
+// 預設起點（管理員設定）：'' 依所屬辦公室、'office:tf'、'office:tn'、'site:<案場編號>'
+const userOrigin = uid => {
+  const d = (users[uid] && users[uid].defaultOrigin) || (me && uid === me.uid && me.defaultOrigin) || '';
+  if (d.startsWith('site:') && master.sites[d.slice(5)]) return { type: 'site', site: d.slice(5) };
+  if (d.startsWith('office:')) return { type: 'office', office: d.slice(7) };
+  return { type: 'office', office: userOffice(uid) };
+};
 const userName = uid => (users[uid] && users[uid].name) || '（未知成員）';
 const userCname = uid => (users[uid] && (users[uid].cname || users[uid].name)) || '';
 const nm = (coll, id) => (master[coll] && master[coll][id] && master[coll][id].name) || '（已刪除）';
@@ -53,7 +60,7 @@ const isHoliday = s0 => !!(holidays[s0.slice(0, 4)] && holidays[s0.slice(0, 4)][
 const isMakeup = s0 => !!(workdays[s0.slice(0, 4)] && workdays[s0.slice(0, 4)][s0]);
 const isWorkday = s0 => { if (isMakeup(s0)) return true; const g = new Date(s0 + 'T00:00:00').getDay(); return g !== 0 && g !== 6 && !isHoliday(s0); };
 // 公司停班（颱風假等）：全公司或指定辦公室
-const closureFor = (uid, s0) => { const c = closures[s0]; return c && (c.scope === 'all' || c.scope === userOffice(uid)) ? c : null; };
+const closureFor = (uid, s0) => { const c = closures[s0]; return c && (c.scope === 'all' || c.scope === userOffice(uid) || c.scope === 'uid:' + uid) ? c : null; };
 const isWorkdayFor = (uid, s0) => isWorkday(s0) && !closureFor(uid, s0);
 const leaveOf = (uid, s0) => Object.values(leaves).find(l => l.uid === uid && l.from <= s0 && s0 <= l.to);
 const members = () => Object.entries(users).filter(([, u]) => u.role === 'admin' || u.role === 'eng');
@@ -78,7 +85,7 @@ export function initDailyReport(currentUser) {
   onValue(ref(db, 'master'), s => {
     const v = s.val() || {};
     master = { customers: v.customers || {}, sites: v.sites || {}, products: v.products || {} };
-    refreshSelects(); renderMaster(); renderList(); renderFuel(); renderExpense(); renderTrack();
+    refreshSelects(); renderMaster(); renderMembers(); renderList(); renderFuel(); renderExpense(); renderTrack();
   });
   onValue(ref(db, 'settings'), s => { settings = { ...DEFAULTS, ...(s.val() || {}) }; if (route) renderRoute(); renderFuel(); renderMembers(); renderDash(); });
   onValue(ref(db, 'exportLog'), s => { exportLog = s.val() || {}; renderFuel(); });
@@ -97,7 +104,7 @@ export function initDailyReport(currentUser) {
 export function setUsers(u) {
   users = u || {};
   if (me && users[me.uid]) me = { ...me, ...users[me.uid] };
-  if (route && !editing && !route.stops.length && route.origin.type === 'office') { route.origin = { type: 'office', office: userOffice(me.uid) }; if ($('drDrive') && $('drDrive').checked) renderRoute(); }
+  if (route && !editing && !route.stops.length) { route.origin = userOrigin(me.uid); if ($('drDrive') && $('drDrive').checked) renderRoute(); }
   fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense(); renderTrack(); renderLeave(); renderDash(); renderClosures();
 }
 
@@ -287,7 +294,7 @@ function buildPanels() {
       <div class="form-group" style="flex:1;margin:0"><label>公司日報表填表人名單（需與 Google 表單選項完全相同，以逗號分隔）</label><input class="dr-in" id="drGNames"></div>
       <button class="btn btn-primary btn-sm" id="drGNamesSave">儲存名單</button>
     </div>
-    <table class="data-table"><thead><tr><th>成員</th><th>中文姓名</th><th>所屬辦公室</th><th>公司日報表填表人</th><th></th></tr></thead><tbody id="drMembers"></tbody></table>
+    <table class="data-table"><thead><tr><th>成員</th><th>中文姓名</th><th>所屬辦公室</th><th>預設起點</th><th>公司日報表填表人</th><th></th></tr></thead><tbody id="drMembers"></tbody></table>
   </div>`;
 
   bindForm();
@@ -438,7 +445,7 @@ function showHours() {
 }
 
 // ── 路線 ──
-const newRoute = () => ({ origin: { type: 'office', office: userOffice(me.uid) }, stops: [], legs: [] });
+const newRoute = () => ({ origin: userOrigin(editing ? editing.uid : me.uid), stops: [], legs: [] });
 function label(p, forXls) {
   if (!p) return '';
   const o = offices();
@@ -463,8 +470,11 @@ function syncSiteStops() {
 function renderRoute() {
   if (!route || !$('drRoute')) return;
   const r = route, o = offices();
+  const dOrg = userOrigin(editing ? editing.uid : me.uid), ts = todaysSites();
   const opts = Object.entries(o).map(([k, x]) => `<option value="office:${k}">${esc(x.name)}</option>`).join('') +
-    todaysSites().map(s => `<option value="site:${s}">今日案場：${esc(label({ type: 'site', site: s }))}</option>`).join('') +
+    (dOrg.type === 'site' && !ts.includes(dOrg.site) ? `<option value="site:${dOrg.site}">預設起點：${esc(label(dOrg))}</option>` : '') +
+    (r.origin.type === 'site' && r.origin.site !== dOrg.site && !ts.includes(r.origin.site) ? `<option value="site:${r.origin.site}">${esc(label(r.origin))}</option>` : '') +
+    ts.map(s => `<option value="site:${s}">今日案場：${esc(label({ type: 'site', site: s }))}</option>`).join('') +
     '<option value="custom">其他地點</option>';
   const ov = r.origin.type === 'site' ? 'site:' + r.origin.site : r.origin.type === 'office' ? 'office:' + r.origin.office : 'custom';
   const addrLine = p => p.type === 'office' && o[p.office] ? `<div class="dr-hint">${esc(o[p.office].addr)}</div>` : '';
@@ -482,7 +492,7 @@ function renderRoute() {
   if (!r.stops.length) h += '<div class="dr-hint" style="margin-bottom:10px">尚未加入目的地，請用下方按鈕加入。</div>';
   $('drRoute').innerHTML = h;
   const sel = $('drRoute').querySelector('[data-origin]');
-  if ([...sel.options].some(x => x.value === ov)) sel.value = ov; else { sel.value = 'office:' + userOffice(me.uid); route.origin = { type: 'office', office: userOffice(me.uid) }; }
+  if ([...sel.options].some(x => x.value === ov)) sel.value = ov; else { route.origin = userOrigin(editing ? editing.uid : me.uid); sel.value = route.origin.type === 'site' ? 'site:' + route.origin.site : 'office:' + route.origin.office; }
   calcFuel();
 }
 function bindRoute() {
@@ -1141,9 +1151,10 @@ function renderClosures() {
   }
   const o = offices(), since = addDays(today(), -60);
   const list = Object.entries(closures).filter(([d]) => d >= since).sort((a, b) => b[0].localeCompare(a[0]));
-  box.innerHTML = list.length ? list.map(([d, c]) => `<div class="dr-leave-row"><span><b>${esc(mdw(d))}</b>　${esc(c.name)}<span class="dr-hint">　${c.scope === 'all' ? '全公司' : esc((o[c.scope] || {}).name || c.scope)}</span></span><button type="button" class="btn btn-ghost btn-sm" data-closure-del="${d}">刪除</button></div>`).join('') : '<div class="dr-hint">近期沒有停班登記</div>';
+  const scopeName = sc => sc === 'all' ? '全公司' : sc.startsWith('uid:') ? '只有' + userName(sc.slice(4)) : '只有' + ((o[sc] || {}).name || sc);
+  box.innerHTML = list.length ? list.map(([d, c]) => `<div class="dr-leave-row"><span><b>${esc(mdw(d))}</b>　${esc(c.name)}<span class="dr-hint">　${esc(scopeName(c.scope))}</span></span><button type="button" class="btn btn-ghost btn-sm" data-closure-del="${d}">刪除</button></div>`).join('') : '<div class="dr-hint">近期沒有停班登記</div>';
   const sel = $('drClosureScope');
-  if (sel && !sel.options.length) sel.innerHTML = '<option value="all">全公司</option>' + Object.entries(o).map(([k, x]) => `<option value="${k}">只有${esc(x.name)}</option>`).join('');
+  if (sel) { const cur = sel.value; sel.innerHTML = '<option value="all">全公司</option>' + Object.entries(o).map(([k, x]) => `<option value="${k}">只有${esc(x.name)}</option>`).join('') + members().map(([uid, u]) => `<option value="uid:${uid}">只有 ${esc(u.name)}</option>`).join(''); if (cur && [...sel.options].some(x => x.value === cur)) sel.value = cur; }
 }
 const money = n => 'NT$ ' + Math.round(n).toLocaleString();
 function trackTag(t) {
@@ -1346,6 +1357,7 @@ function renderMembers() {
     <td>${esc(u.name)}</td>
     <td><input class="dr-in" data-cname="${uid}" value="${esc(u.cname || '')}" placeholder="${esc(u.name)}"></td>
     <td><select class="dr-in" data-office-of="${uid}">${Object.entries(o).map(([k, x]) => `<option value="${k}" ${(u.office || 'tf') === k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
+    <td><select class="dr-in" data-origin-of="${uid}"><option value="">依所屬辦公室</option>${Object.entries(o).map(([k, x]) => `<option value="office:${k}" ${u.defaultOrigin === 'office:' + k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}${Object.entries(master.sites).filter(([id, x]) => x.active !== false || u.defaultOrigin === 'site:' + id).sort((a, b) => (nm('customers', a[1].cust) + a[1].name).localeCompare(nm('customers', b[1].cust) + b[1].name, 'zh-Hant')).map(([id, x]) => `<option value="site:${id}" ${u.defaultOrigin === 'site:' + id ? 'selected' : ''}>${esc(nm('customers', x.cust))}／${esc(x.name)}</option>`).join('')}</select></td>
     <td><select class="dr-in" data-form-of="${uid}"><option value="">（不帶入）</option>${[...new Set([...gformNames(), ...(u.formName ? [u.formName] : [])])].map(n => `<option ${u.formName === n ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
     <td><button class="btn btn-primary btn-sm" data-save-member="${uid}">儲存</button></td></tr>`).join('');
   if (!renderMembers.bound) {
@@ -1355,7 +1367,8 @@ function renderMembers() {
       const uid = b.dataset.saveMember;
       const cname = tb.querySelector(`[data-cname="${uid}"]`).value.trim(), office = tb.querySelector(`[data-office-of="${uid}"]`).value;
       const formName = tb.querySelector(`[data-form-of="${uid}"]`).value;
-      try { await update(ref(db, `users/${uid}`), { cname, office, formName }); toast('已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
+      const defaultOrigin = tb.querySelector(`[data-origin-of="${uid}"]`).value;
+      try { await update(ref(db, `users/${uid}`), { cname, office, formName, defaultOrigin }); toast('已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
     });
   }
 }
