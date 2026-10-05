@@ -28,6 +28,7 @@ let monthData = {}, unsubMonth = {};        // reports by month: { '2026-10': {i
 let exportLog = {};
 let editing = null;                          // { month, id }
 let route = null, items = [''], exps = [], meta = [{ st: 'done' }];
+let equipment = {}, badges = {}, srLog = {};
 let tracking = {}, holidays = {}, workdays = {}, closures = {}, leaves = {}, tickets = {}, officeMode = false;
 let contactAuto = true, prodAuto = true;
 
@@ -41,6 +42,8 @@ const userOffice = uid => (users[uid] && users[uid].office) || (me && uid === me
 // 預設起點（管理員設定）：'' 依所屬辦公室、'office:tf'、'office:tn'、'site:<案場編號>'
 const userOrigin = uid => {
   const d = (users[uid] && users[uid].defaultOrigin) || (me && uid === me.uid && me.defaultOrigin) || '';
+  const u = users[uid] || (me && uid === me.uid ? me : {});
+  if (d === 'custom' && u.originName) return { type: 'custom', name: u.originName, addr: u.originAddr || '' };
   if (d.startsWith('site:') && master.sites[d.slice(5)]) return { type: 'site', site: d.slice(5) };
   if (d.startsWith('office:')) return { type: 'office', office: d.slice(7) };
   return { type: 'office', office: userOffice(uid) };
@@ -95,6 +98,9 @@ export function initDailyReport(currentUser) {
   onValue(ref(db, 'closures'), s => { closures = s.val() || {}; renderClosures(); renderDash(); });
   onValue(ref(db, 'leave'), s => { leaves = s.val() || {}; renderLeave(); renderDash(); });
   onValue(ref(db, 'tickets'), s => { tickets = s.val() || {}; renderDash(); });
+  onValue(ref(db, 'equipment'), s => { equipment = s.val() || {}; });
+  onValue(ref(db, 'badges'), s => { badges = s.val() || {}; });
+  onValue(ref(db, 'srLog'), s => { srLog = s.val() || {}; renderSRLog(); });
   if (+today().slice(8) <= 5) watchMonth(ym(addDays(today().slice(0, 8) + '01', -1)));
   { const w = ym(addDays(today(), -7)); watchMonth(w); }
   watchMonth(ym(today()));
@@ -213,6 +219,42 @@ function buildPanels() {
     </div>
     <div id="drList"></div>
   </div>
+  <div class="card">
+    <div class="card-title"><span>📄 Service Report 紀錄</span></div>
+    <p class="dr-hint" style="margin-bottom:10px">客戶要求時，在上方日報紀錄按該筆的「Service Report」產出。最近 20 張可在此重新匯出。</p>
+    <div id="srLogList"></div>
+  </div>
+  <div class="modal-overlay" id="srModal"><div class="modal dr-sr-modal">
+    <div class="modal-title">產出 Service Report</div>
+    <div class="dr-sec" style="margin-top:0;border-top:0;padding-top:0">報告資訊</div>
+    <div class="dr-grid">
+      <div class="form-group"><label>CSR No.</label><input class="dr-in" id="srCsr"></div>
+      <div class="form-group"><label>PO No.</label><input class="dr-in" id="srPo" placeholder="選填"></div>
+      <div class="form-group"><label>Issue date</label><input class="dr-in" type="date" id="srIssue"></div>
+    </div>
+    <div class="dr-grid">
+      <div class="form-group"><label>客戶全名</label><input class="dr-in" id="srFull"></div>
+      <div class="form-group"><label>客戶地址</label><input class="dr-in" id="srAddr"></div>
+    </div>
+    <div class="dr-sec">包含的日報（同案場前後 30 天，可勾選多天或多位同仁）</div>
+    <div id="srReports" class="dr-sr-reps"></div>
+    <div class="dr-sec">機台資料</div>
+    <div class="dr-grid">
+      <div class="form-group"><label>Tool Name</label><input class="dr-in" id="srTool" list="srToolList" placeholder="例如 MR#4"><datalist id="srToolList"></datalist></div>
+      <div class="form-group"><label>Make</label><input class="dr-in" id="srMake" placeholder="例如 Fabmatics"></div>
+      <div class="form-group"><label>Model</label><input class="dr-in" id="srModel"></div>
+      <div class="form-group"><label>S/N</label><input class="dr-in" id="srSn"></div>
+      <div class="form-group"><label>Equipment type</label><input class="dr-in" id="srType" placeholder="例如 Mobile Robot"></div>
+      <div class="form-group"><label>Warranty</label><select class="dr-in" id="srWarranty"><option value="">未指定</option><option value="in">In（保固內）</option><option value="out">Out（保固外）</option></select></div>
+    </div>
+    <label class="dr-check"><input type="checkbox" id="srRemember" checked> 記住這台機台，下次選 Tool Name 自動帶出</label>
+    <div class="dr-sec">服務內容</div>
+    <div class="form-group"><label>Customer Service Items（摘要）</label><textarea class="dr-in" id="srItems" rows="2"></textarea></div>
+    <div class="form-group"><label>Customer Service Details（明細）</label><textarea class="dr-in" id="srDetails" rows="5"></textarea></div>
+    <div class="dr-sec">進場人員（休息時數：工時超過 6 小時預設 1，可修改）</div>
+    <div style="overflow-x:auto"><table class="data-table dr-sr-table"><thead><tr><th>No.</th><th>人員</th><th>卡號</th><th>進場日期</th><th>進場時間</th><th>出場日期</th><th>出場時間</th><th>休息</th><th>交通</th></tr></thead><tbody id="srPeople"></tbody></table></div>
+    <div class="modal-actions"><button class="btn btn-ghost" onclick="closeModal('srModal')">取消</button><button class="btn btn-primary" id="srExport">匯出 Excel</button></div>
+  </div></div>
   <div class="modal-overlay" id="drLineModal"><div class="modal">
     <div class="modal-title">日報已儲存</div>
     <p class="dr-hint" style="margin-bottom:10px">以下文字與群組格式相同，可直接複製貼到 LINE。</p>
@@ -271,7 +313,7 @@ function buildPanels() {
   </div>` + `
   <div class="card">
     <div class="card-title"><span>🏢 客戶／案場／產品</span></div>
-    <p class="dr-hint" style="margin-bottom:12px">所有人都可以在日報中新增；只有管理員可以停用。停用後下拉選單不再出現，但舊日報保留原名稱。</p>
+    <p class="dr-hint" style="margin-bottom:12px">所有人都可以在日報中新增；只有管理員可以停用或刪除。停用後下拉選單不再出現、清單預設隱藏，舊日報保留原名稱。要刪除須先停用，且沒有任何日報使用才能刪除。</p>
     <div class="dr-master"><div><h4>客戶</h4><ul id="drMCust"></ul></div><div><h4>案場</h4><ul id="drMSite"></ul></div><div><h4>產品</h4><ul id="drMProd"></ul></div></div>
   </div>
   <div class="card">
@@ -298,6 +340,7 @@ function buildPanels() {
   </div>`;
 
   bindForm();
+  bindSR();
   const m = ym(today());
   $('drListMonth').value = m; $('drFuelMonth').value = m; $('drExpMonth').value = m;
   $('drExpMonth').onchange = () => { watchMonth($('drExpMonth').value); renderExpense(); };
@@ -473,13 +516,15 @@ function renderRoute() {
   const dOrg = userOrigin(editing ? editing.uid : me.uid), ts = todaysSites();
   const opts = Object.entries(o).map(([k, x]) => `<option value="office:${k}">${esc(x.name)}</option>`).join('') +
     (dOrg.type === 'site' && !ts.includes(dOrg.site) ? `<option value="site:${dOrg.site}">預設起點：${esc(label(dOrg))}</option>` : '') +
+    (dOrg.type === 'custom' ? `<option value="default">預設起點：${esc(dOrg.name)}</option>` : '') +
     (r.origin.type === 'site' && r.origin.site !== dOrg.site && !ts.includes(r.origin.site) ? `<option value="site:${r.origin.site}">${esc(label(r.origin))}</option>` : '') +
     ts.map(s => `<option value="site:${s}">今日案場：${esc(label({ type: 'site', site: s }))}</option>`).join('') +
     '<option value="custom">其他地點</option>';
-  const ov = r.origin.type === 'site' ? 'site:' + r.origin.site : r.origin.type === 'office' ? 'office:' + r.origin.office : 'custom';
+  const isDef = dOrg.type === 'custom' && r.origin.type === 'custom' && r.origin.name === dOrg.name && (r.origin.addr || '') === (dOrg.addr || '');
+  const ov = isDef ? 'default' : r.origin.type === 'site' ? 'site:' + r.origin.site : r.origin.type === 'office' ? 'office:' + r.origin.office : 'custom';
   const addrLine = p => p.type === 'office' && o[p.office] ? `<div class="dr-hint">${esc(o[p.office].addr)}</div>` : '';
   const customIns = (p, key) => `<input data-${key}-name placeholder="地點簡稱（印在報表上），例如 GBG宜蘭利澤" value="${esc(p.name)}"><input data-${key}-addr placeholder="地址（選填）" value="${esc(p.addr)}">`;
-  let h = `<div class="dr-stop dr-origin"><div class="dr-stop-h"><span>起點</span></div><select data-origin>${opts}</select>${addrLine(r.origin)}${r.origin.type === 'custom' ? customIns(r.origin, 'origin') : ''}</div>`;
+  let h = `<div class="dr-stop dr-origin"><div class="dr-stop-h"><span>起點</span></div><select data-origin>${opts}</select>${addrLine(r.origin)}${isDef ? `<div class="dr-hint">${esc(dOrg.addr)}</div>` : r.origin.type === 'custom' ? customIns(r.origin, 'origin') : ''}</div>`;
   r.stops.forEach((st, i) => {
     const mn = (r.mins || [])[i];
     h += `<div class="dr-leg">這段 <input type="number" min="0" step="0.1" inputmode="decimal" data-leg="${i}" value="${esc(r.legs[i])}"> 公里${mn != null && r.legs[i] !== '' ? `<span class="dr-auto-tag">自動・約 ${mn} 分鐘</span>` : ''}</div>`;
@@ -500,7 +545,7 @@ function bindRoute() {
   box.addEventListener('change', e => {
     if (e.target.dataset.origin === undefined) return;
     const v = e.target.value;
-    route.origin = v.startsWith('office:') ? { type: 'office', office: v.slice(7) } : v === 'custom' ? { type: 'custom', name: '', addr: '' } : { type: 'site', site: v.slice(5) };
+    route.origin = v === 'default' ? userOrigin(editing ? editing.uid : me.uid) : v.startsWith('office:') ? { type: 'office', office: v.slice(7) } : v === 'custom' ? { type: 'custom', name: '', addr: '' } : { type: 'site', site: v.slice(5) };
     renderRoute();
   });
   box.addEventListener('input', e => {
@@ -898,15 +943,17 @@ function renderList() {
       <div class="dr-actions">
         ${mine ? `<button class="btn btn-ghost btn-sm" data-edit="${m}|${id}">修改</button>` : ''}
         <button class="btn btn-ghost btn-sm" data-copy="${m}|${id}">LINE 文字／公司日報表</button>
+        ${!isOfficeR(r) && (mine || isAdmin()) ? `<button class="btn btn-ghost btn-sm" data-sr="${m}|${id}">Service Report</button>` : ''}
         ${mine ? `<button class="btn btn-danger btn-sm" data-rm="${m}|${id}">刪除</button>` : ''}
       </div></div>`;
   }).join('');
 }
 async function listClick(e) {
   const b = e.target.closest('button'); if (!b) return;
-  const [m, id] = (b.dataset.edit || b.dataset.copy || b.dataset.rm || '').split('|');
+  const [m, id] = (b.dataset.edit || b.dataset.copy || b.dataset.rm || b.dataset.sr || '').split('|');
   if (b.dataset.edit) loadForEdit(m, id);
   if (b.dataset.copy) showLine(monthData[m][id]);
+  if (b.dataset.sr) { const [m2, id2] = b.dataset.sr.split('|'); openSR(m2, id2); }
   if (b.dataset.rm && confirm('確定刪除這筆日報？\n（此日報的待追蹤事項也會一併移除）')) { try { await clearTracking(id); await remove(ref(db, `reports/${m}/${id}`)); toast('已刪除'); } catch (er) { toast('刪除失敗：' + er.message); } }
 }
 
@@ -1288,18 +1335,202 @@ function dashEng(m) {
   <div class="dd-sub">工單與庫存</div>`;
 }
 
+// ═════════════ Service Report（客戶要求時產出） ═════════════
+const SR_TEMPLATE = 'assets/sr_template.xlsx';
+let srCtx = null;
+const pad2 = n => String(n).padStart(2, '0');
+const srKey = s0 => s0.replace(/-/g, '');
+function nextCsr(issue) {
+  const pre = `CSR-${srKey(issue)}-`;
+  const nums = Object.keys(srLog).filter(k => k.startsWith(pre)).map(k => +k.slice(pre.length)).filter(n => !isNaN(n));
+  return pre + String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, '0');
+}
+function srCandidates(r) {
+  const from = addDays(r.date, -30), to = addDays(r.date, 30);
+  [ym(from), ym(r.date), ym(to)].forEach(watchMonth);
+  const out = [];
+  Object.entries(monthData).forEach(([m, rs]) => Object.entries(rs || {}).forEach(([id, x]) => {
+    if (!isOfficeR(x) && x.site === r.site && x.date >= from && x.date <= to) out.push({ key: `${m}|${id}`, r: x });
+  }));
+  return out.sort((a, b) => a.r.date.localeCompare(b.r.date) || (a.r.start || '').localeCompare(b.r.start || '') || userName(a.r.uid).localeCompare(userName(b.r.uid)));
+}
+export function openSR(m, id) {
+  const r = (monthData[m] || {})[id]; if (!r) return;
+  const cust = master.customers[r.cust] || {}, site = master.sites[r.site] || {};
+  srCtx = { base: `${m}|${id}`, r, detailsDirty: false, csrDirty: false, itemsDirty: false };
+  const t = today();
+  $('srIssue').value = t; $('srCsr').value = nextCsr(t); $('srPo').value = '';
+  $('srFull').value = cust.fullName || nm('customers', r.cust); $('srAddr').value = site.addr || '';
+  const eqs = Object.entries(equipment).filter(([, e]) => e.site === r.site);
+  $('srToolList').innerHTML = eqs.map(([, e]) => `<option value="${esc(e.tool)}">`).join('');
+  ['srTool', 'srMake', 'srModel', 'srSn', 'srType'].forEach(k => { $(k).value = ''; });
+  $('srWarranty').value = ''; $('srRemember').checked = true;
+  if (eqs.length === 1) fillEquip(eqs[0][1]);
+  renderSRList(); srRegen(true);
+  $('srModal').classList.add('open');
+}
+function fillEquip(e) {
+  $('srTool').value = e.tool || ''; $('srMake').value = e.make || ''; $('srModel').value = e.model || '';
+  $('srSn').value = e.sn || ''; $('srType').value = e.type || ''; $('srWarranty').value = e.warranty || '';
+}
+function renderSRList() {
+  const r = srCtx.r, cands = srCandidates(r);
+  $('srReports').innerHTML = cands.map(c => `<label class="dr-check"><input type="checkbox" data-sr-rep="${c.key}" ${c.r.date === r.date ? 'checked' : ''}>
+    ${esc(mdw(c.r.date))}　${esc(userName(c.r.uid))}　${esc(c.r.start)}~${esc(c.r.end)}${c.r.overnight ? '（隔日）' : ''}<span class="dr-hint">　${esc((c.r.items || [])[0] || '')}</span></label>`).join('') || '<div class="dr-hint">沒有可合併的日報</div>';
+}
+function srChosen() {
+  return [...document.querySelectorAll('[data-sr-rep]:checked')].map(el => { const [m, id] = el.dataset.srRep.split('|'); return (monthData[m] || {})[id]; }).filter(Boolean)
+    .sort((a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || ''));
+}
+function srRegen(first) {
+  const rs = srChosen(), dates = [...new Set(rs.map(x => x.date))];
+  if (first || !srCtx.itemsDirty) $('srItems').value = (srCtx.r.items || [])[0] ? `1. ${srCtx.r.items[0]}` : '';
+  if (first || !srCtx.detailsDirty) {
+    const uniq = list => list.filter((x, i) => list.indexOf(x) === i);
+    $('srDetails').value = dates.length <= 1
+      ? uniq(rs.flatMap(x => x.items || [])).map((x, i) => `${i + 1}. ${x}`).join('\n')
+      : dates.map(d => `${mdw(d)}\n` + uniq(rs.filter(x => x.date === d).flatMap(x => x.items || [])).map((x, i) => `${i + 1}. ${x}`).join('\n')).join('\n');
+  }
+  const cust = srCtx.r.cust;
+  $('srPeople').innerHTML = rs.map((x, i) => {
+    const h = hoursOf(x), rest = h > 6 ? 1 : 0, outD = x.overnight ? addDays(x.date, 1) : x.date;
+    return `<tr data-sr-row="${i}"><td>${i + 1}</td><td>${esc(userName(x.uid))}<input type="hidden" data-sr-uid value="${x.uid}"></td>
+      <td><input class="dr-in" data-sr-badge value="${esc(badges[`${x.uid}_${cust}`] || '')}" placeholder="卡號"></td>
+      <td><input class="dr-in" type="date" data-sr-din value="${x.date}"></td><td><input class="dr-in" type="time" data-sr-tin value="${x.start}"></td>
+      <td><input class="dr-in" type="date" data-sr-dout value="${outD}"></td><td><input class="dr-in" type="time" data-sr-tout value="${x.end}"></td>
+      <td><input class="dr-in" type="number" step="0.5" min="0" data-sr-rest value="${rest}"></td><td><input class="dr-in" type="number" step="0.5" min="0" data-sr-trav value="${x.travel || 0}"></td></tr>`;
+  }).join('') || '<tr><td colspan="9" class="dr-hint">請至少勾選一筆日報</td></tr>';
+}
+function bindSR() {
+  $('srReports').addEventListener('change', () => srRegen(false));
+  $('srItems').addEventListener('input', () => { srCtx.itemsDirty = true; });
+  $('srDetails').addEventListener('input', () => { srCtx.detailsDirty = true; });
+  $('srCsr').addEventListener('input', () => { srCtx.csrDirty = true; });
+  $('srIssue').addEventListener('change', () => { if (!srCtx.csrDirty) $('srCsr').value = nextCsr($('srIssue').value || today()); });
+  $('srTool').addEventListener('change', () => { const e = Object.values(equipment).find(x => x.site === srCtx.r.site && x.tool === $('srTool').value.trim()); if (e) fillEquip(e); });
+  $('srExport').onclick = srExport;
+  $('srLogList').addEventListener('click', e => { const b = e.target.closest('[data-sr-again]'); if (b) srBuild(srLog[b.dataset.srAgain], true); });
+}
+function srCollect() {
+  const rows = [...document.querySelectorAll('[data-sr-row]')].map(tr => ({
+    uid: tr.querySelector('[data-sr-uid]').value, name: userName(tr.querySelector('[data-sr-uid]').value), badge: tr.querySelector('[data-sr-badge]').value.trim(),
+    din: tr.querySelector('[data-sr-din]').value, tin: tr.querySelector('[data-sr-tin]').value, dout: tr.querySelector('[data-sr-dout]').value, tout: tr.querySelector('[data-sr-tout]').value,
+    rest: parseFloat(tr.querySelector('[data-sr-rest]').value) || 0, trav: parseFloat(tr.querySelector('[data-sr-trav]').value) || 0,
+  }));
+  return {
+    csr: $('srCsr').value.trim(), po: $('srPo').value.trim(), issue: $('srIssue').value || today(),
+    full: $('srFull').value.trim(), addr: $('srAddr').value.trim(), items: $('srItems').value.trim(), details: $('srDetails').value.trim(),
+    eq: { tool: $('srTool').value.trim(), make: $('srMake').value.trim(), model: $('srModel').value.trim(), sn: $('srSn').value.trim(), type: $('srType').value.trim(), warranty: $('srWarranty').value },
+    rows, cust: srCtx.r.cust, site: srCtx.r.site, reps: [...document.querySelectorAll('[data-sr-rep]:checked')].map(el => el.dataset.srRep),
+  };
+}
+async function srExport() {
+  const d = srCollect();
+  if (!d.csr) { toast('請填 CSR No.'); return; }
+  if (!d.rows.length) { toast('請至少勾選一筆日報'); return; }
+  if (srLog[d.csr] && !confirm(`${d.csr} 已開立過，要覆蓋紀錄並重新匯出嗎？`)) return;
+  const ok = await srBuild(d, false); if (!ok) return;
+  try {
+    const ups = {};
+    ups[`srLog/${d.csr}`] = { ...d, by: me.uid, at: new Date().toISOString() };
+    d.rows.forEach(x => { if (x.badge && x.badge !== badges[`${x.uid}_${d.cust}`]) ups[`badges/${x.uid}_${d.cust}`] = x.badge; });
+    if ($('srRemember').checked && d.eq.tool) {
+      const hit = Object.entries(equipment).find(([, e]) => e.site === d.site && e.tool === d.eq.tool);
+      ups[`equipment/${hit ? hit[0] : push(ref(db, 'equipment')).key}`] = { site: d.site, ...d.eq };
+    }
+    await update(ref(db), ups);
+    const c = master.customers[d.cust];
+    if (c && d.full && d.full !== c.fullName) await update(ref(db, `master/customers/${d.cust}`), { fullName: d.full });
+    $('srModal').classList.remove('open');
+  } catch (e) { toast('紀錄儲存失敗：' + e.message); }
+}
+async function srBuild(d, again) {
+  try { await loadExcelJS(); } catch (e) { toast(e.message); return false; }
+  let buf;
+  try { const res = await fetch(SR_TEMPLATE, { cache: 'no-cache' }); if (!res.ok) throw new Error('HTTP ' + res.status); buf = await res.arrayBuffer(); }
+  catch (e) { toast('讀取 Service Report 範本失敗：' + e.message); return false; }
+  const wb = new ExcelJS.Workbook(); await wb.xlsx.load(buf);
+  const ws = wb.worksheets[0];
+  const runs = a => (ws.getCell(a).value && ws.getCell(a).value.richText) || [];
+  const f = (a, i) => { const r0 = runs(a)[i]; return r0 && r0.font ? { ...r0.font } : undefined; };
+  const black = (ft, bold) => ({ ...(ft || {}), color: { theme: 1 }, ...(bold !== undefined ? { bold } : {}) });
+  const set = (a, rich) => { ws.getCell(a).value = { richText: rich.map(([text, font]) => font ? { text, font } : { text }) }; };
+  const iss = d.issue;
+  set('A3', [['PO No.: ', f('A3', 0)], [d.po || '', black(f('A3', 1), true)]]);
+  set('D3', [['CSR No.: ', f('D3', 0)], [d.csr, black(f('D3', 1), true)]]);
+  ws.getCell('G3').value = `Issue date: ${+iss.slice(0, 4)}/${+iss.slice(5, 7)}/${+iss.slice(8, 10)}`;
+  set('A4', [['Customer Fab/Name', f('A4', 0)], [': ', f('A4', 1)], [d.full, f('A4', 2)]]);
+  set('A5', [['Customer Address:', f('A5', 0)], [' ' + d.addr, f('A5', 2)]]);
+  ws.getCell('A7').value = d.items;
+  ws.getCell('A9').value = `Make: ${d.eq.make}`; ws.getCell('D9').value = `Model: ${d.eq.model}`; ws.getCell('G9').value = `Tool Name: ${d.eq.tool}`;
+  set('A10', [['S/N: ', f('A10', 0)], [d.eq.sn || '', black(f('A10', 1), true)]]);
+  ws.getCell('D10').value = ` Equipment type: ${d.eq.type}`;
+  const w = d.eq.warranty, box = on => on ? '■' : '□', red = { argb: 'FFFF0000' };
+  set('G10', [['Warranty status:    ', f('G10', 0)], [box(w === 'in'), { ...(f('G10', 1) || {}), color: w === 'in' ? red : { theme: 1 } }], [' In       ', f('G10', 2)], [box(w === 'out'), { ...(f('G10', 3) || {}), color: w === 'out' ? red : { theme: 1 } }], [' Out', f('G10', 4)]]);
+  ws.getCell('A12').value = d.details;
+  // 人員列：範本有 15、16 兩列，超過時插入並修正下方合併儲存格
+  const n = Math.max(d.rows.length, 2), extra = n - 2;
+  if (extra > 0) {
+    const tail = ['A17:I17', 'A18:E18', 'F18:I18', 'A19:I19', 'A20:I20', 'A21:I21'], hs = {};
+    for (let r = 17; r <= 21; r++) hs[r] = ws.getRow(r).height;
+    tail.forEach(m => ws.unMergeCells(m));
+    ws.duplicateRow(16, extra, true);
+    tail.forEach(m => ws.mergeCells(m.replace(/(\d+)/g, x => +x + extra)));
+    for (let r = 17; r <= 21; r++) ws.getRow(r + extra).height = hs[r];
+  }
+  const cols = 'ABCDEFGHI'.split('');
+  for (let i = 0; i < n; i++) {
+    const r = 15 + i;
+    if (i > 0) cols.forEach(c => { ws.getCell(c + r).style = JSON.parse(JSON.stringify(ws.getCell(c + 15).style)); });
+    ws.getRow(r).height = ws.getRow(15).height;
+    const x = d.rows[i];
+    if (!x) { cols.forEach(c => { ws.getCell(c + r).value = null; }); continue; }
+    const dt = s0 => new Date(Date.UTC(+s0.slice(0, 4), +s0.slice(5, 7) - 1, +s0.slice(8, 10)));
+    ws.getCell('A' + r).value = i + 1;
+    ws.getCell('B' + r).value = x.badge ? `${x.name} 卡號:${x.badge}` : x.name;
+    ws.getCell('C' + r).value = dt(x.din); ws.getCell('D' + r).value = x.tin;
+    ws.getCell('E' + r).value = dt(x.dout); ws.getCell('F' + r).value = x.tout;
+    ws.getCell('G' + r).value = String(x.rest); ws.getCell('H' + r).value = String(x.trav);
+    ws.getCell('I' + r).value = { formula: `(ROUNDDOWN((F${r}+(E${r}-C${r})-D${r})*24/0.5,0)*0.5)+H${r}-G${r}` };
+  }
+  ws.getCell('F' + (18 + extra)).value = { formula: `SUM(I15:I${14 + n})` };
+  const out = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = `${d.csr}_${nm('customers', d.cust)}_${nm('sites', d.site)}.xlsx`;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  toast(again ? '已重新匯出' : `已匯出 ${d.csr}`);
+  return true;
+}
+function renderSRLog() {
+  const box = $('srLogList'); if (!box || !me) return;
+  const list = Object.entries(srLog).filter(([, x]) => isAdmin() || x.by === me.uid || (x.rows || []).some(r => r.uid === me.uid)).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 20);
+  box.innerHTML = list.length ? list.map(([k, x]) => `<div class="dr-leave-row"><span><b>${esc(k)}</b>　${esc(nm('customers', x.cust))}／${esc(nm('sites', x.site))}<span class="dr-hint">　${esc((x.eq || {}).tool || '')}　${esc((x.rows || []).map(r => r.name).filter((v, i, a) => a.indexOf(v) === i).join('、'))}</span></span><button type="button" class="btn btn-ghost btn-sm" data-sr-again="${esc(k)}">重新匯出</button></div>`).join('') : '<div class="dr-hint">尚未開立 Service Report</div>';
+}
+
 // ═════════════ 管理：主檔與成員 ═════════════
+let showOff = { customers: false, sites: false, products: false };
 function renderMaster() {
   if (!$('drMCust') || !isAdmin()) return;
   const li = (coll, id, x, extra) => `<li class="${x.active === false ? 'off' : ''}"><span>${esc(x.name)}${extra ? `<span class="dr-hint">　${esc(extra)}</span>` : ''}${x.active === false ? '　<span class="dr-tag">已停用</span>' : ''}</span>
-    <span style="display:flex;gap:4px;flex-shrink:0">${coll === 'sites' ? `<button class="btn btn-sm btn-ghost" data-addr="${id}">地址</button>` : ''}<button class="btn btn-sm ${x.active === false ? 'btn-ghost' : 'btn-danger'}" data-toggle="${coll}|${id}">${x.active === false ? '啟用' : '停用'}</button></span></li>`;
+    <span style="display:flex;gap:4px;flex-shrink:0">${coll === 'sites' ? `<button class="btn btn-sm btn-ghost" data-addr="${id}">地址</button>` : ''}<button class="btn btn-sm ${x.active === false ? 'btn-ghost' : 'btn-danger'}" data-toggle="${coll}|${id}">${x.active === false ? '啟用' : '停用'}</button>${x.active === false ? `<button class="btn btn-sm btn-danger" data-mdel="${coll}|${id}">刪除</button>` : ''}</span></li>`;
   const sortN = o => Object.entries(o).sort((a, b) => a[1].name.localeCompare(b[1].name, 'zh-Hant'));
-  $('drMCust').innerHTML = sortN(master.customers).map(([id, x]) => li('customers', id, x)).join('') || '<li class="dr-hint">尚無資料</li>';
-  $('drMSite').innerHTML = sortN(master.sites).map(([id, x]) => li('sites', id, x, `${nm('customers', x.cust)}｜${x.addr || '未填地址'}`)).join('') || '<li class="dr-hint">尚無資料</li>';
-  $('drMProd').innerHTML = sortN(master.products).map(([id, x]) => li('products', id, x)).join('') || '<li class="dr-hint">尚無資料</li>';
+  const list = (coll, extraFn) => {
+    const all = sortN(master[coll]), off = all.filter(([, x]) => x.active === false).length;
+    const shown = all.filter(([, x]) => showOff[coll] || x.active !== false);
+    return (shown.map(([id, x]) => li(coll, id, x, extraFn && extraFn(x))).join('') || '<li class="dr-hint">尚無資料</li>') +
+      (off ? `<li class="dr-off-toggle"><button type="button" class="btn btn-ghost btn-sm" data-showoff="${coll}">${showOff[coll] ? '隱藏已停用' : `顯示已停用（${off}）`}</button></li>` : '');
+  };
+  $('drMCust').innerHTML = list('customers');
+  $('drMSite').innerHTML = list('sites', x => `${nm('customers', x.cust)}｜${x.addr || '未填地址'}`);
+  $('drMProd').innerHTML = list('products');
   if (!renderMaster.bound) {
     renderMaster.bound = true;
     $('drAdminHost').addEventListener('click', async e => {
+      const so = e.target.closest('[data-showoff]');
+      if (so) { showOff[so.dataset.showoff] = !showOff[so.dataset.showoff]; renderMaster(); return; }
+      const md = e.target.closest('[data-mdel]');
+      if (md && isAdmin()) { await deleteMaster(...md.dataset.mdel.split('|')); return; }
       const ab = e.target.closest('[data-addr]');
       if (ab && isAdmin()) {
         const x = master.sites[ab.dataset.addr];
@@ -1313,6 +1544,30 @@ function renderMaster() {
       await update(ref(db, `master/${coll}/${id}`), { active: x.active === false });
     });
   }
+}
+// 刪除主檔：只允許刪除沒有被任何日報、待追蹤、成員設定使用的項目
+async function deleteMaster(coll, id) {
+  const x = master[coll][id]; if (!x) return;
+  const field = { customers: 'cust', sites: 'site', products: 'prod' }[coll];
+  toast('檢查是否有資料使用中…');
+  let used = 0;
+  try {
+    const all = (await get(ref(db, 'reports'))).val() || {};
+    Object.values(all).forEach(mo => Object.values(mo || {}).forEach(r => { if (r[field] === id) used++; }));
+  } catch (er) { toast('檢查失敗：' + er.message); return; }
+  const blockers = [];
+  if (used) blockers.push(`${used} 筆日報`);
+  const tr = Object.values(tracking).filter(t => t[field] === id).length; if (tr) blockers.push(`${tr} 件待追蹤`);
+  if (coll === 'customers') { const n = Object.values(master.sites).filter(s0 => s0.cust === id).length; if (n) blockers.push(`${n} 個案場（請先刪除案場）`); }
+  if (coll === 'sites') { const n = Object.values(users).filter(u => u.defaultOrigin === 'site:' + id).length; if (n) blockers.push(`${n} 位成員的預設起點`); }
+  if (blockers.length) { alert(`「${x.name}」仍被 ${blockers.join('、')} 使用，無法刪除。\n保持「停用」即可，停用的項目預設不會顯示在清單中。`); return; }
+  if (!confirm(`確定刪除「${x.name}」？刪除後無法復原。`)) return;
+  try {
+    const ups = { [`${coll}/${id}`]: null };
+    if (coll === 'products') Object.entries(master.sites).forEach(([sid, s0]) => { if (s0.prod === id) ups[`sites/${sid}/prod`] = null; });
+    await update(ref(db, 'master'), ups);
+    toast(`已刪除「${x.name}」`);
+  } catch (er) { toast('刪除失敗：' + er.message); }
 }
 function renderMembers() {
   const tb = $('drMembers'); if (!tb || !isAdmin()) return;
@@ -1357,18 +1612,22 @@ function renderMembers() {
     <td>${esc(u.name)}</td>
     <td><input class="dr-in" data-cname="${uid}" value="${esc(u.cname || '')}" placeholder="${esc(u.name)}"></td>
     <td><select class="dr-in" data-office-of="${uid}">${Object.entries(o).map(([k, x]) => `<option value="${k}" ${(u.office || 'tf') === k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}</select></td>
-    <td><select class="dr-in" data-origin-of="${uid}"><option value="">依所屬辦公室</option>${Object.entries(o).map(([k, x]) => `<option value="office:${k}" ${u.defaultOrigin === 'office:' + k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}${Object.entries(master.sites).filter(([id, x]) => x.active !== false || u.defaultOrigin === 'site:' + id).sort((a, b) => (nm('customers', a[1].cust) + a[1].name).localeCompare(nm('customers', b[1].cust) + b[1].name, 'zh-Hant')).map(([id, x]) => `<option value="site:${id}" ${u.defaultOrigin === 'site:' + id ? 'selected' : ''}>${esc(nm('customers', x.cust))}／${esc(x.name)}</option>`).join('')}</select></td>
+    <td><select class="dr-in" data-origin-of="${uid}"><option value="">依所屬辦公室</option><option value="custom" ${u.defaultOrigin === 'custom' ? 'selected' : ''}>自訂地點（例如住家附近）</option>${Object.entries(o).map(([k, x]) => `<option value="office:${k}" ${u.defaultOrigin === 'office:' + k ? 'selected' : ''}>${esc(x.name)}</option>`).join('')}${Object.entries(master.sites).filter(([id, x]) => x.active !== false || u.defaultOrigin === 'site:' + id).sort((a, b) => (nm('customers', a[1].cust) + a[1].name).localeCompare(nm('customers', b[1].cust) + b[1].name, 'zh-Hant')).map(([id, x]) => `<option value="site:${id}" ${u.defaultOrigin === 'site:' + id ? 'selected' : ''}>${esc(nm('customers', x.cust))}／${esc(x.name)}</option>`).join('')}</select>
+      <div data-origin-custom="${uid}" ${u.defaultOrigin === 'custom' ? '' : 'hidden'} style="margin-top:6px;display:flex;flex-direction:column;gap:6px"><input class="dr-in" data-oname="${uid}" placeholder="簡稱，例如 高雄住家" value="${esc(u.originName || '')}"><input class="dr-in" data-oaddr="${uid}" placeholder="地址：建議填路口或地標" value="${esc(u.originAddr || '')}"></div></td>
     <td><select class="dr-in" data-form-of="${uid}"><option value="">（不帶入）</option>${[...new Set([...gformNames(), ...(u.formName ? [u.formName] : [])])].map(n => `<option ${u.formName === n ? 'selected' : ''}>${n}</option>`).join('')}</select></td>
     <td><button class="btn btn-primary btn-sm" data-save-member="${uid}">儲存</button></td></tr>`).join('');
   if (!renderMembers.bound) {
     renderMembers.bound = true;
+    tb.addEventListener('change', e => { const s0 = e.target.closest('[data-origin-of]'); if (s0) tb.querySelector(`[data-origin-custom="${s0.dataset.originOf}"]`).hidden = s0.value !== 'custom'; });
     tb.addEventListener('click', async e => {
       const b = e.target.closest('[data-save-member]'); if (!b) return;
       const uid = b.dataset.saveMember;
       const cname = tb.querySelector(`[data-cname="${uid}"]`).value.trim(), office = tb.querySelector(`[data-office-of="${uid}"]`).value;
       const formName = tb.querySelector(`[data-form-of="${uid}"]`).value;
       const defaultOrigin = tb.querySelector(`[data-origin-of="${uid}"]`).value;
-      try { await update(ref(db, `users/${uid}`), { cname, office, formName, defaultOrigin }); toast('已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
+      const originName = tb.querySelector(`[data-oname="${uid}"]`).value.trim(), originAddr = tb.querySelector(`[data-oaddr="${uid}"]`).value.trim();
+      if (defaultOrigin === 'custom' && !originName) { toast('自訂地點請填簡稱'); return; }
+      try { await update(ref(db, `users/${uid}`), { cname, office, formName, defaultOrigin, originName, originAddr }); toast('已儲存'); } catch (er) { toast('儲存失敗：' + er.message); }
     });
   }
 }
