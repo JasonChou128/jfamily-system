@@ -82,6 +82,7 @@
 
     <!-- DASHBOARD -->
     <div class="panel active" id="panel-dashboard">
+      <div id="drDash"></div>
       <div class="dash-grid">
         <div class="stat-card gold jf-hidden"><div class="stat-val" id="stat-present">0</div><div class="stat-label">今日出勤</div></div>
         <div class="stat-card red"><div class="stat-val" id="stat-tickets-open">0</div><div class="stat-label">待處理票單</div></div>
@@ -213,8 +214,8 @@
         <table class="data-table"><thead><tr><th>姓名</th><th>Email</th><th>權限</th><th>操作</th></tr></thead><tbody id="userList"></tbody></table>
       </div>
       <div id="drAdminHost"></div>
-      <div class="card jf-hidden">
-        <div class="card-title"><span>📅 假日管理</span></div>
+      <div class="card">
+        <div class="card-title"><span>📅 國定假日管理</span></div>
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">依據行政院人事行政總處官方公告管理台灣國定假日，每年更新一次</p>
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
           <select id="holiday-year-sel" onchange="onHolidayYearChange()" style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 12px;color:var(--text);font-size:13px">
@@ -621,10 +622,9 @@ function startListeners() {
       if (cur) sel.value = cur;
     }
   });
-  if (ENABLE_ATT_CAL) {
-    listenHolidays();
-    if (currentUser.role === 'admin') initHolidayAdmin();
-  }
+  if (ENABLE_ATT_CAL) listenHolidays();
+  // v2.0：國定假日用於日報未填提醒與每日彙整，管理頁恢復顯示
+  if (currentUser.role === 'admin') initHolidayAdmin();
 }
 
 // ── INIT（v1.6：由 Firebase Authentication 判斷登入狀態）──
