@@ -128,3 +128,12 @@ LINE 推播（monitor.js）已停用。
 | database.rules.json | 新增 leave、workdays、closures 規則 |
 
 24 小時 PC 端：daily-digest.js（休假、國定假日、補班日、公司停班、內勤格式）、update-holidays.js（新增，每月自動下載人事行政總處官方日曆）。
+
+## v2.1：個人預設起點、指定人員停班（2026-10-05）
+
+| 檔案 | 修改內容 |
+|---|---|
+| js/dailyreport.js | 日報成員設定新增「預設起點」（依所屬辦公室、頭份、南部或指定案場，例如駐點 TSMC／F22A），由管理員設定，工程師每筆日報仍可視情況更改起點；公司停班登記範圍新增「只有某位成員」 |
+| daily-digest.js（PC 端） | 公司停班支援指定成員 |
+
+users 新增 defaultOrigin 欄位。
