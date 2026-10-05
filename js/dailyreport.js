@@ -28,7 +28,7 @@ let monthData = {}, unsubMonth = {};        // reports by month: { '2026-10': {i
 let exportLog = {};
 let editing = null;                          // { month, id }
 let route = null, items = [''], exps = [], meta = [{ st: 'done' }];
-let tracking = {};
+let tracking = {}, holidays = {}, workdays = {}, closures = {}, leaves = {}, tickets = {}, officeMode = false;
 let contactAuto = true, prodAuto = true;
 
 const $ = id => document.getElementById(id);
@@ -42,6 +42,26 @@ const userName = uid => (users[uid] && users[uid].name) || '（未知成員）';
 const userCname = uid => (users[uid] && (users[uid].cname || users[uid].name)) || '';
 const nm = (coll, id) => (master[coll] && master[coll][id] && master[coll][id].name) || '（已刪除）';
 const norm = s => String(s).toLowerCase().replace(/[\s\-_]/g, '');
+// ── 日期與工作日 ──
+const WD = ['日', '一', '二', '三', '四', '五', '六'];
+const dstr = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const addDays = (s0, n) => { const d = new Date(s0 + 'T00:00:00'); d.setDate(d.getDate() + n); return dstr(d); };
+const wdOf = s0 => WD[new Date(s0 + 'T00:00:00').getDay()];
+const mdw = s0 => `${+s0.slice(5, 7)}/${+s0.slice(8, 10)}（${wdOf(s0)}）`;
+const isHoliday = s0 => !!(holidays[s0.slice(0, 4)] && holidays[s0.slice(0, 4)][s0]);
+// 補班日（官方日曆週末上班）優先；國定假日、週末為休
+const isMakeup = s0 => !!(workdays[s0.slice(0, 4)] && workdays[s0.slice(0, 4)][s0]);
+const isWorkday = s0 => { if (isMakeup(s0)) return true; const g = new Date(s0 + 'T00:00:00').getDay(); return g !== 0 && g !== 6 && !isHoliday(s0); };
+// 公司停班（颱風假等）：全公司或指定辦公室
+const closureFor = (uid, s0) => { const c = closures[s0]; return c && (c.scope === 'all' || c.scope === userOffice(uid)) ? c : null; };
+const isWorkdayFor = (uid, s0) => isWorkday(s0) && !closureFor(uid, s0);
+const leaveOf = (uid, s0) => Object.values(leaves).find(l => l.uid === uid && l.from <= s0 && s0 <= l.to);
+const members = () => Object.entries(users).filter(([, u]) => u.role === 'admin' || u.role === 'eng');
+// ── 外勤／內勤 ──
+const isOfficeR = r => r && r.kind === 'office';
+const custName = r => isOfficeR(r) ? '內勤' : nm('customers', r.cust);
+const siteName = r => isOfficeR(r) ? ((offices()[r.office] || offices().tf).name) : nm('sites', r.site);
+const prodName = r => isOfficeR(r) ? '-' : nm('products', r.prod);
 const round1 = n => Math.round(n * 10) / 10;
 
 function toast(m) {
@@ -60,9 +80,16 @@ export function initDailyReport(currentUser) {
     master = { customers: v.customers || {}, sites: v.sites || {}, products: v.products || {} };
     refreshSelects(); renderMaster(); renderList(); renderFuel(); renderExpense(); renderTrack();
   });
-  onValue(ref(db, 'settings'), s => { settings = { ...DEFAULTS, ...(s.val() || {}) }; if (route) renderRoute(); renderFuel(); renderMembers(); });
+  onValue(ref(db, 'settings'), s => { settings = { ...DEFAULTS, ...(s.val() || {}) }; if (route) renderRoute(); renderFuel(); renderMembers(); renderDash(); });
   onValue(ref(db, 'exportLog'), s => { exportLog = s.val() || {}; renderFuel(); });
-  onValue(ref(db, 'tracking'), s => { tracking = s.val() || {}; renderTrack(); renderSiteOpen(); });
+  onValue(ref(db, 'tracking'), s => { tracking = s.val() || {}; renderTrack(); renderSiteOpen(); renderDash(); });
+  onValue(ref(db, 'holidays'), s => { holidays = s.val() || {}; renderLeave(); renderDash(); });
+  onValue(ref(db, 'workdays'), s => { workdays = s.val() || {}; renderLeave(); renderDash(); });
+  onValue(ref(db, 'closures'), s => { closures = s.val() || {}; renderClosures(); renderDash(); });
+  onValue(ref(db, 'leave'), s => { leaves = s.val() || {}; renderLeave(); renderDash(); });
+  onValue(ref(db, 'tickets'), s => { tickets = s.val() || {}; renderDash(); });
+  if (+today().slice(8) <= 5) watchMonth(ym(addDays(today().slice(0, 8) + '01', -1)));
+  { const w = ym(addDays(today(), -7)); watchMonth(w); }
   watchMonth(ym(today()));
   resetForm();
 }
@@ -71,7 +98,7 @@ export function setUsers(u) {
   users = u || {};
   if (me && users[me.uid]) me = { ...me, ...users[me.uid] };
   if (route && !editing && !route.stops.length && route.origin.type === 'office') { route.origin = { type: 'office', office: userOffice(me.uid) }; if ($('drDrive') && $('drDrive').checked) renderRoute(); }
-  fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense(); renderTrack();
+  fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense(); renderTrack(); renderLeave(); renderDash(); renderClosures();
 }
 
 export function newReport() { resetForm(); $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -81,7 +108,7 @@ function watchMonth(m) {
   unsubMonth[m] = onValue(ref(db, `reports/${m}`), s => {
     monthData[m] = s.val() || {};
     if (route) renderRoute();
-    renderList(); renderFuel(); renderExpense();
+    renderList(); renderFuel(); renderExpense(); renderLeave(); renderDash();
   });
 }
 
@@ -89,11 +116,18 @@ function watchMonth(m) {
 function buildPanels() {
   $('panel-report').innerHTML = `
   <div class="card" id="drForm">
-    <div class="card-title"><span id="drFormTitle">📝 填寫工作日報</span></div>
+    <div class="card-title"><span id="drFormTitle">📝 填寫工作日報</span>
+      <span class="dr-mode" role="group" aria-label="日報類型"><button type="button" class="dr-mode-btn on" data-mode="field">外勤</button><button type="button" class="dr-mode-btn" data-mode="office">內勤</button></span></div>
     <div class="dr-grid">
       <div class="form-group"><label>日期 *</label><input type="date" id="drDate"></div>
       <div class="form-group"><label>人員</label><input id="drUser" disabled></div>
     </div>
+    <div id="drSecOffice" hidden>
+      <div class="dr-sec">內勤</div>
+      <div class="dr-grid"><div class="form-group"><label>辦公室</label><select id="drOfficeSel"></select></div></div>
+      <div class="dr-hint">內勤不需填客戶、案場、產品與路線，也不需交公司日報表；處理事項可簡單記錄或留空。</div>
+    </div>
+    <div id="drSecCase">
     <div class="dr-sec">案件</div>
     <div class="dr-grid">
       <div class="form-group"><label>客戶 *</label><div class="dr-with-add"><select id="drCust"></select><button type="button" class="btn btn-ghost btn-sm" data-add="cust">新增</button></div></div>
@@ -108,6 +142,7 @@ function buildPanels() {
       <button type="button" class="btn btn-primary btn-sm" data-save="site">加入案場</button> <button type="button" class="btn btn-ghost btn-sm" data-cancel="site">取消</button></div>
     <div class="dr-adder" id="drAdd-prod"><div class="form-group"><label>新產品名稱</label><input id="drNew-prod"></div>
       <button type="button" class="btn btn-primary btn-sm" data-save="prod">加入產品</button> <button type="button" class="btn btn-ghost btn-sm" data-cancel="prod">取消</button></div>
+    </div>
 
     <div class="dr-sec">工時</div>
     <div class="dr-grid">
@@ -118,6 +153,7 @@ function buildPanels() {
     <label class="dr-check"><input type="checkbox" id="drOvernight"> 結束於隔日</label>
     <div class="dr-hint" id="drHours"></div>
 
+    <div id="drSecFuel">
     <div class="dr-sec">油資</div>
     <label class="dr-check"><input type="checkbox" id="drDrive"> 自行開車（勾選後填寫路線，計算油資）</label>
     <div id="drRouteBox" hidden>
@@ -132,7 +168,8 @@ function buildPanels() {
       <div class="dr-total"><span>總里程 <b id="drKm">0</b> 公里 × <span id="drRate">8</span> 元</span><span class="dr-big">NT$ <span id="drFuel">0</span></span></div>
     </div>
 
-    <div class="dr-sec">處理事項 *</div>
+    </div>
+    <div class="dr-sec" id="drItemsLabel">處理事項 *</div>
     <div id="drSiteOpen"></div>
     <ol class="dr-items" id="drItems"></ol>
     <div class="dr-hint" style="margin-bottom:6px">每條預設為「完成」；沒處理完的請點一下改為「待追蹤」，可選填預計完成日。</div>
@@ -148,6 +185,18 @@ function buildPanels() {
       <button type="button" class="btn btn-primary" id="drSubmit">送出日報</button>
       <button type="button" class="btn btn-ghost" id="drReset">清空重填</button>
     </div>
+  </div>
+  <div class="card" id="drLeaveCard">
+    <div class="card-title"><span>🏖 休假登記</span></div>
+    <p class="dr-hint" style="margin-bottom:10px">請假期間一次登記即可，登記的日子不需填日報，也不會被列為未回報。半天假不需登記。</p>
+    <div class="dr-grid">
+      <div class="form-group" id="drLeaveUserBox"><label>人員</label><select id="drLeaveUser"></select></div>
+      <div class="form-group"><label>起始日</label><input type="date" id="drLeaveFrom"></div>
+      <div class="form-group"><label>結束日</label><input type="date" id="drLeaveTo"></div>
+      <div class="form-group"><label>備註（選填）</label><input id="drLeaveNote" placeholder="例如：特休、病假"></div>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" id="drLeaveAdd">登記休假</button>
+    <div id="drLeaveList" style="margin-top:12px"></div>
   </div>
   <div class="card">
     <div class="card-title"><span>📋 日報紀錄</span></div>
@@ -179,7 +228,10 @@ function buildPanels() {
   <div class="card">
     <div class="card-title"><span>⛽ 油資報表</span><button class="btn btn-primary btn-sm" id="drXlsx">匯出 Excel</button></div>
     <div class="dr-grid">
-      <div class="form-group"><label>月份</label><input type="month" id="drFuelMonth"></div>
+      <div class="form-group"><label>期間</label><select id="drFuelMode"><option value="month">依月份</option><option value="range">自訂日期區間</option></select></div>
+      <div class="form-group" id="drFuelMonthBox"><label>月份</label><input type="month" id="drFuelMonth"></div>
+      <div class="form-group" id="drFuelFromBox" hidden><label>起始日</label><input type="date" id="drFuelFrom"></div>
+      <div class="form-group" id="drFuelToBox" hidden><label>結束日</label><input type="date" id="drFuelTo"></div>
       <div class="form-group"><label>人員</label><select id="drFuelUser"></select></div>
     </div>
     <div id="drFuelWarn"></div>
@@ -188,7 +240,10 @@ function buildPanels() {
   <div class="card">
     <div class="card-title"><span>💰 雜項支出報表</span><button class="btn btn-primary btn-sm" id="drExpXlsx">匯出 Excel</button></div>
     <div class="dr-grid">
-      <div class="form-group"><label>月份</label><input type="month" id="drExpMonth"></div>
+      <div class="form-group"><label>期間</label><select id="drExpMode"><option value="month">依月份</option><option value="range">自訂日期區間</option></select></div>
+      <div class="form-group" id="drExpMonthBox"><label>月份</label><input type="month" id="drExpMonth"></div>
+      <div class="form-group" id="drExpFromBox" hidden><label>起始日</label><input type="date" id="drExpFrom"></div>
+      <div class="form-group" id="drExpToBox" hidden><label>結束日</label><input type="date" id="drExpTo"></div>
       <div class="form-group"><label>人員</label><select id="drExpUser"></select></div>
     </div>
     <div id="drExpOut"></div>
@@ -197,6 +252,17 @@ function buildPanels() {
   const adminHost = $('drAdminHost');
   if (adminHost) adminHost.innerHTML = `
   <div class="card">
+    <div class="card-title"><span>🌀 公司停班登記</span></div>
+    <p class="dr-hint" style="margin-bottom:12px">颱風假等公司停班日在此登記。登記範圍內的成員不列入未回報、不提醒補填；當天仍有出勤者照常填日報。</p>
+    <div class="dr-grid">
+      <div class="form-group"><label>日期</label><input type="date" class="dr-in" id="drClosureDate"></div>
+      <div class="form-group"><label>名稱</label><input class="dr-in" id="drClosureName" value="颱風假"></div>
+      <div class="form-group"><label>範圍</label><select class="dr-in" id="drClosureScope"></select></div>
+    </div>
+    <button type="button" class="btn btn-primary btn-sm" id="drClosureAdd">登記停班</button>
+    <div id="drClosureList" style="margin-top:12px"></div>
+  </div>` + `
+  <div class="card">
     <div class="card-title"><span>🏢 客戶／案場／產品</span></div>
     <p class="dr-hint" style="margin-bottom:12px">所有人都可以在日報中新增；只有管理員可以停用。停用後下拉選單不再出現，但舊日報保留原名稱。</p>
     <div class="dr-master"><div><h4>客戶</h4><ul id="drMCust"></ul></div><div><h4>案場</h4><ul id="drMSite"></ul></div><div><h4>產品</h4><ul id="drMProd"></ul></div></div>
@@ -204,6 +270,10 @@ function buildPanels() {
   <div class="card">
     <div class="card-title"><span>👤 日報成員設定</span></div>
     <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值；公司日報表填表人是開啟公司 Google 表單時自動選取的名字。</p>
+    <div class="dr-gnames">
+      <div class="form-group" style="flex:1;margin:0"><label>未填提醒起算日（此日之前的空白日不提醒，建議設為正式啟用日）</label><input type="date" class="dr-in" id="drRemindFrom"></div>
+      <button class="btn btn-primary btn-sm" id="drRemindSave">儲存起算日</button>
+    </div>
     <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>每日彙整信收件人（以逗號分隔，留空則只寄給 Jason）</label><input class="dr-in" id="drDigestTo" placeholder="jason.chou@gbgtek.com.tw"></div>
       <button class="btn btn-primary btn-sm" id="drDigestToSave">儲存收件人</button>
@@ -233,6 +303,15 @@ function buildPanels() {
   $('drListMonth').onchange = () => { watchMonth($('drListMonth').value); renderList(); };
   $('drListUser').onchange = renderList;
   $('drFuelMonth').onchange = () => { watchMonth($('drFuelMonth').value); renderFuel(); };
+  [['Fuel', () => renderFuel()], ['Exp', () => renderExpense()]].forEach(([px, fn]) => {
+    $(`dr${px}Mode`).onchange = () => {
+      const rg = $(`dr${px}Mode`).value === 'range';
+      $(`dr${px}MonthBox`).hidden = rg; $(`dr${px}FromBox`).hidden = !rg; $(`dr${px}ToBox`).hidden = !rg;
+      if (rg && !$(`dr${px}From`).value) { const mm = $(`dr${px}Month`).value; $(`dr${px}From`).value = mm + '-01'; $(`dr${px}To`).value = today().slice(0, 7) === mm ? today() : monthEnd(mm); }
+      fn();
+    };
+    $(`dr${px}From`).onchange = fn; $(`dr${px}To`).onchange = fn;
+  });
   $('drFuelUser').onchange = renderFuel;
   $('drXlsx').onclick = exportXlsx;
   fillUserFilters();
@@ -303,6 +382,9 @@ function bindForm() {
   $('drExps').addEventListener('click', e => { const b = e.target.closest('[data-exp-del]'); if (b) { exps.splice(+b.dataset.expDel, 1); renderExps(); } });
   $('drAddExp').onclick = () => { exps.push({ cat: '', amt: '', note: '' }); renderExps(); };
   $('drSubmit').onclick = submit;
+  document.querySelectorAll('.dr-mode-btn').forEach(b => b.onclick = () => setMode(b.dataset.mode === 'office'));
+  $('drLeaveAdd').onclick = addLeave;
+  $('drLeaveList').addEventListener('click', e => { const b = e.target.closest('[data-leave-del]'); if (b) delLeave(b.dataset.leaveDel); });
   $('drReset').onclick = () => { if (confirm('確定清空目前填寫的內容？')) resetForm(); };
   $('drCopy').onclick = copyLine;
   $('drList').addEventListener('click', listClick);
@@ -514,11 +596,35 @@ function resetForm() {
   route = newRoute(); items = ['']; meta = [{ st: 'done' }]; exps = [];
   refreshSelects({ cust: '', site: '', prod: '' });
   $('drErr').textContent = ''; $('drSubmit').textContent = '送出日報'; $('drFormTitle').textContent = '📝 填寫工作日報';
+  setMode(false);
   renderItems(); renderExps(); showHours();
+}
+function setMode(off) {
+  officeMode = !!off;
+  document.querySelectorAll('.dr-mode-btn').forEach(b => b.classList.toggle('on', (b.dataset.mode === 'office') === officeMode));
+  $('drSecCase').hidden = officeMode; $('drSecFuel').hidden = officeMode; $('drSecOffice').hidden = !officeMode;
+  $('drItemsLabel').textContent = officeMode ? '處理事項（選填）' : '處理事項 *';
+  const sel = $('drOfficeSel'), o = offices();
+  if (sel) { const cur = sel.value; sel.innerHTML = Object.entries(o).map(([k, x]) => `<option value="${k}">${esc(x.name)}</option>`).join(''); sel.value = cur && o[cur] ? cur : userOffice(editing ? editing.uid : me.uid); }
+  if (officeMode) { $('drDrive').checked = false; $('drRouteBox').hidden = true; }
+  renderSiteOpen();
+}
+// 由總覽頁開始填寫：可指定日期與內勤
+export function startReport(opt = {}) {
+  window.switchTab('report', document.querySelector('.nav-tab[data-tab="report"]'));
+  resetForm();
+  if (opt.date) { $('drDate').value = opt.date; watchMonth(ym(opt.date)); }
+  if (opt.office) setMode(true);
+  $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 function validate() {
   if (!$('drDate').value) return '請選日期';
+  if (leaveOf(editing ? editing.uid : me.uid, $('drDate').value)) return '這天已登記休假；若當天有上班，請先刪除休假登記';
+  if (officeMode) {
+    const h0 = hours(); if (h0 == null) return '請填工作時間'; if (h0 <= 0) return '結束時間早於開始時間；若做到隔天，請勾選「結束於隔日」';
+    return validateExps();
+  }
   if (!$('drCust').value) return '請選客戶';
   if (!$('drSite').value) return '請選案場';
   if (!$('drProd').value) return '請選產品';
@@ -532,6 +638,9 @@ function validate() {
       const n = parseFloat(route.legs[i]); if (isNaN(n) || n < 0) return `第 ${i + 1} 段請填公里數`;
     }
   }
+  return validateExps();
+}
+function validateExps() {
   for (let j = 0; j < exps.length; j++) {
     const x = exps[j]; if (x.amt === '' && x.note === '' && !x.cat) continue;
     if (!x.cat) return `雜項支出第 ${j + 1} 筆請選類別`;
@@ -543,10 +652,11 @@ function validate() {
 async function submit() {
   const m = validate(); $('drErr').textContent = m; if (m) return;
   const now = new Date().toISOString(), date = $('drDate').value, month = ym(date);
-  const drive = $('drDrive').checked;
+  const drive = !officeMode && $('drDrive').checked;
   const rec = {
-    uid: editing ? editing.uid : me.uid, date,
-    cust: $('drCust').value, site: $('drSite').value, prod: $('drProd').value, contact: $('drContact').value.trim(),
+    uid: editing ? editing.uid : me.uid, date, kind: officeMode ? 'office' : 'field',
+    cust: officeMode ? '' : $('drCust').value, site: officeMode ? '' : $('drSite').value, prod: officeMode ? '' : $('drProd').value,
+    contact: officeMode ? '' : $('drContact').value.trim(),
     start: $('drStart').value, end: $('drEnd').value, overnight: $('drOvernight').checked, travel: parseFloat($('drTravel').value) || 0,
     drive, route: drive ? JSON.parse(JSON.stringify(route)) : null,
     items: items.map(x => x.trim()).filter(Boolean),
@@ -558,6 +668,7 @@ async function submit() {
     exps: exps.filter(x => x.amt !== '' || x.note !== '' || x.cat).map(x => ({ cat: x.cat, amt: parseFloat(x.amt) || 0, note: x.note.trim() })),
     updatedAt: now, updatedBy: me.uid,
   };
+  if (officeMode) rec.office = $('drOfficeSel').value || userOffice(rec.uid);
   if (drive) rec.route.legs = rec.route.legs.map(x => parseFloat(x) || 0);
   $('drSubmit').disabled = true;
   try {
@@ -574,12 +685,12 @@ async function submit() {
       rec.createdAt = now;
       const nr = push(ref(db, `reports/${month}`)); rid = nr.key;
       await set(nr, rec);
-      const p = master.products[rec.prod];
+      const p = !officeMode && master.products[rec.prod];
       if (p) await update(ref(db, `master/products/${rec.prod}`), { uses: (p.uses || 0) + 1 });
     }
     await syncTracking(rid, month, rec);
-    if (rec.contact) await update(ref(db, `master/sites/${rec.site}`), { lastContact: rec.contact });
-    const st = master.sites[rec.site];
+    if (rec.contact && rec.site) await update(ref(db, `master/sites/${rec.site}`), { lastContact: rec.contact });
+    const st = rec.site && master.sites[rec.site];
     if (st && !st.prod && rec.prod) await update(ref(db, `master/sites/${rec.site}`), { prod: rec.prod });
     watchMonth(month);
     showLine(rec);
@@ -597,9 +708,9 @@ function itemLabel(r, i) {
 function lineText(r) {
   const sum = (r.exps || []).reduce((a, x) => a + (parseFloat(x.amt) || 0), 0);
   const notes = (r.exps || []).map(x => `${x.cat || x.note || '其他'}${x.cat && x.note ? '(' + x.note + ')' : ''} ${x.amt}`);
-  return `日期：${r.date.replace(/-/g, '/')}\n人員：${userName(r.uid)}\n客戶：${nm('customers', r.cust)}\n案場：${nm('sites', r.site)}\n產品：${nm('products', r.prod)}\n` +
+  return `日期：${r.date.replace(/-/g, '/')}\n人員：${userName(r.uid)}\n客戶：${custName(r)}\n案場：${siteName(r)}\n產品：${prodName(r)}\n` +
     `工作時間：${r.start}~${r.end}${r.overnight ? '（隔日）' : ''}\n交通時間：${r.travel || 0}h\n處理事項：\n` +
-    (r.items || []).map((x, i) => `${i + 1}. ${itemLabel(r, i)}`).join('\n') + `\n支出：${sum}${notes.length ? '（' + notes.join('、') + '）' : ''}`;
+    ((r.items || []).length ? (r.items || []).map((x, i) => `${i + 1}. ${itemLabel(r, i)}`).join('\n') : '（無）') + `\n支出：${sum}${notes.length ? '（' + notes.join('、') + '）' : ''}`;
 }
 function scopeOf(prodName) {
   if (/FMX/i.test(prodName || '')) return '半導體';
@@ -627,7 +738,7 @@ function showLine(r) {
   $('drLineText').textContent = lineText(r);
   const a = $('drGform');
   a.href = gformUrl(r);
-  a.style.display = r.uid === me.uid ? '' : 'none';
+  a.style.display = r.uid === me.uid && !isOfficeR(r) ? '' : 'none';
   $('drLineModal').classList.add('open');
 }
 
@@ -643,6 +754,7 @@ function loadForEdit(month, id) {
   editing = { month, id, uid: r.uid };
   window.switchTab('report', document.querySelector('.nav-tab[data-tab="report"]'));
   $('drDate').value = r.date; $('drUser').value = userName(r.uid);
+  setMode(isOfficeR(r)); if (isOfficeR(r) && r.office) $('drOfficeSel').value = r.office;
   refreshSelects({ cust: r.cust, site: r.site, prod: r.prod });
   $('drContact').value = r.contact || ''; contactAuto = !r.contact; prodAuto = false;
   $('drStart').value = r.start; $('drEnd').value = r.end; $('drOvernight').checked = !!r.overnight; $('drTravel').value = r.travel || 0;
@@ -671,6 +783,7 @@ async function syncTracking(rid, month, rec) {
   (rec.itemMeta || []).forEach((m2, i) => {
     if (m2.st !== 'open') return;
     const t = { uid: rec.uid, month, rid, idx: i, text: rec.items[i], cust: rec.cust, site: rec.site, date: rec.date, due: m2.due || '' };
+    if (isOfficeR(rec)) { t.kind = 'office'; t.office = rec.office; }
     if (m2.closedAt) Object.assign(t, { closedAt: m2.closedAt, closedBy: m2.closedBy || '', closeNote: m2.closeNote || '' });
     ups[`${rid}_${i}`] = t;
   });
@@ -692,7 +805,7 @@ async function setClosed(key, close) {
 }
 function renderSiteOpen() {
   const box = $('drSiteOpen'); if (!box || !me) return;
-  const sid = $('drSite').value;
+  const sid = officeMode ? '__none__' : $('drSite').value;
   const list = Object.entries(tracking).filter(([, t]) => t.site === sid && !t.closedAt && canEdit(t) && !(editing && t.rid === editing.id));
   box.innerHTML = list.length ? `<div class="dr-siteopen"><b>此案場尚有 ${list.length} 件待追蹤</b>` + list.map(([k, t]) =>
     `<div class="dr-siteopen-row"><span>${esc(t.text)}<span class="dr-hint">　${esc(userName(t.uid))}・${esc(t.date.slice(5).replace('-', '/'))} 起・${daysSince(t.date)} 天</span></span><button type="button" class="btn btn-ghost btn-sm" data-close="${k}">結案</button></div>`).join('') + '</div>' : '';
@@ -706,7 +819,7 @@ function renderTrack() {
   $('drTrackStat').innerHTML = `<div class="dr-stats"><div><b>${openAll.length}</b><span>未結案</span></div><div class="${aged ? 'warn' : ''}"><b>${aged}</b><span>超過 7 天</span></div><div class="${overdue ? 'warn' : ''}"><b>${overdue}</b><span>已逾預計完成日</span></div></div>`;
   if (!list.length) { out.innerHTML = `<div class="empty-state"><div class="icon">📌</div>${mode === 'open' ? '沒有未結案的待追蹤事項' : '沒有已結案的紀錄'}</div>`; return; }
   const groups = {};
-  list.forEach(([k, t]) => { const g = `${nm('customers', t.cust)}／${nm('sites', t.site)}`; (groups[g] = groups[g] || []).push([k, t]); });
+  list.forEach(([k, t]) => { const g = `${custName(t)}／${siteName(t)}`; (groups[g] = groups[g] || []).push([k, t]); });
   const order = Object.keys(groups).sort((a, b) => Math.max(...groups[b].map(([, t]) => daysSince(t.date))) - Math.max(...groups[a].map(([, t]) => daysSince(t.date))));
   out.innerHTML = order.map(g => `<div class="dr-sec">${esc(g)}（${groups[g].length}）</div>` + groups[g]
     .sort((a, b) => a[1].date.localeCompare(b[1].date))
@@ -719,6 +832,45 @@ function renderTrack() {
     }).join('')).join('');
 }
 
+// ═════════════ 休假登記 ═════════════
+function renderLeave() {
+  const box = $('drLeaveList'); if (!box || !me) return;
+  const sel = $('drLeaveUser');
+  if (sel) {
+    const cur = sel.value;
+    sel.innerHTML = members().map(([uid, u]) => `<option value="${uid}">${esc(u.name)}</option>`).join('');
+    sel.value = cur && users[cur] ? cur : me.uid;
+    $('drLeaveUserBox').hidden = !isAdmin();
+  }
+  const since = addDays(today(), -60);
+  const list = Object.entries(leaves).filter(([, l]) => (isAdmin() || l.uid === me.uid) && l.to >= since).sort((a, b) => b[1].from.localeCompare(a[1].from));
+  if (!list.length) { box.innerHTML = '<div class="dr-hint">近期沒有休假登記</div>'; return; }
+  box.innerHTML = list.map(([k, l]) => {
+    let n = 0; for (let d = l.from; d <= l.to && n < 400; d = addDays(d, 1)) if (isWorkday(d)) n++;
+    const can = isAdmin() || l.uid === me.uid;
+    return `<div class="dr-leave-row"><span><b>${esc(userName(l.uid))}</b>　${esc(mdw(l.from))}${l.to !== l.from ? ' ～ ' + esc(mdw(l.to)) : ''}<span class="dr-hint">　工作日 ${n} 天${l.note ? '・' + esc(l.note) : ''}</span></span>${can ? `<button type="button" class="btn btn-ghost btn-sm" data-leave-del="${k}">刪除</button>` : ''}</div>`;
+  }).join('');
+}
+async function addLeave() {
+  const from = $('drLeaveFrom').value, to = $('drLeaveTo').value || from;
+  const uid = isAdmin() ? ($('drLeaveUser').value || me.uid) : me.uid;
+  if (!from) { toast('請選擇起始日'); return; }
+  if (from > to) { toast('起始日不能晚於結束日'); return; }
+  const overlap = Object.values(leaves).find(l => l.uid === uid && !(to < l.from || from > l.to));
+  if (overlap) { toast(`與已登記的休假 ${overlap.from}～${overlap.to} 重疊`); return; }
+  const had = []; for (let d = from; d <= to && had.length < 400; d = addDays(d, 1)) if (Object.values(monthData[ym(d)] || {}).some(r => r.uid === uid && r.date === d)) had.push(d);
+  if (had.length && !confirm(`${had.map(mdw).join('、')} 已有日報，仍要登記休假嗎？\n（日報不會被刪除）`)) return;
+  try {
+    await set(push(ref(db, 'leave')), { uid, from, to, note: $('drLeaveNote').value.trim(), by: me.uid, at: new Date().toISOString() });
+    $('drLeaveFrom').value = ''; $('drLeaveTo').value = ''; $('drLeaveNote').value = '';
+    toast('已登記休假');
+  } catch (e) { toast('登記失敗：' + e.message); }
+}
+async function delLeave(k) {
+  const l = leaves[k]; if (!l || !confirm(`刪除 ${userName(l.uid)} ${l.from}～${l.to} 的休假登記？`)) return;
+  try { await remove(ref(db, `leave/${k}`)); toast('已刪除'); } catch (e) { toast('刪除失敗：' + e.message); }
+}
+
 // ═════════════ 日報紀錄 ═════════════
 function renderList() {
   const out = $('drList'); if (!out || !me) return;
@@ -729,8 +881,8 @@ function renderList() {
   if (!rs.length) { out.innerHTML = '<div class="empty-state"><div class="icon">📝</div>這個月份還沒有日報</div>'; return; }
   out.innerHTML = rs.map(([id, r]) => {
     const mine = r.uid === me.uid, km = r.drive ? round1(kmOf(r.route)) : 0;
-    return `<div class="dr-card"><div class="dr-card-h"><b>${esc(r.date.replace(/-/g, '/'))}　${esc(nm('customers', r.cust))}／${esc(nm('sites', r.site))}</b><span class="dr-tag">${esc(userName(r.uid))}</span></div>
-      <div class="dr-hint">${esc(nm('products', r.prod))}　${esc(r.start)}~${esc(r.end)}${r.overnight ? '（隔日）' : ''}${r.contact ? '　拜訪：' + esc(r.contact) : ''}${r.drive ? `　${km} km` : ''}</div>
+    return `<div class="dr-card"><div class="dr-card-h"><b>${esc(r.date.replace(/-/g, '/'))}　${esc(custName(r))}／${esc(siteName(r))}</b><span class="dr-tag">${esc(userName(r.uid))}</span></div>
+      <div class="dr-hint">${esc(prodName(r))}　${esc(r.start)}~${esc(r.end)}${r.overnight ? '（隔日）' : ''}${r.contact ? '　拜訪：' + esc(r.contact) : ''}${r.drive ? `　${km} km` : ''}</div>
       <ol class="dr-ol">${(r.items || []).map((x, i) => { const m2 = (r.itemMeta || [])[i]; return `<li>${esc(x)}${m2 && m2.st === 'open' ? ` <span class="dr-chip ${m2.closedAt ? 'closed' : 'open'}">${m2.closedAt ? '已結案' : '待追蹤'}</span>` : ''}</li>`; }).join('')}</ol>
       <div class="dr-hint">最後修改：${esc(new Date(r.updatedAt).toLocaleString('zh-TW'))}（${esc(userName(r.updatedBy))}）</div>
       <div class="dr-actions">
@@ -749,8 +901,33 @@ async function listClick(e) {
 }
 
 // ═════════════ 油資報表 ═════════════
-function dayRows(uid, m) {
-  const rs = Object.values(monthData[m] || {}).filter(r => r.drive && r.uid === uid && r.route)
+// ── 油資報表期間：依月份或自訂日期區間 ──
+function monthEnd(m) { const d = new Date(+m.slice(0, 4), +m.slice(5, 7), 0); return `${m}-${String(d.getDate()).padStart(2, '0')}`; }
+function monthsBetween(from, to) {
+  const out = []; let y = +from.slice(0, 4), mo = +from.slice(5, 7);
+  const ey = +to.slice(0, 4), em = +to.slice(5, 7);
+  while ((y < ey || (y === ey && mo <= em)) && out.length < 24) { out.push(`${y}-${String(mo).padStart(2, '0')}`); mo++; if (mo > 12) { mo = 1; y++; } }
+  return out;
+}
+function fuelPeriod() { return period('Fuel'); }
+function period(px) {
+  if ($(`dr${px}Mode`).value !== 'range') {
+    const m = $(`dr${px}Month`).value;
+    return { ok: !!m, months: [m], from: m + '-01', to: monthEnd(m), key: m, sheet: `${m.replace('-', '')}出差紀錄`, file: m.replace('-', ''),
+      title: `${m.slice(0, 4)}.${+m.slice(5, 7)}月份`, label: m };
+  }
+  const from = $(`dr${px}From`).value, to = $(`dr${px}To`).value;
+  if (!from || !to) return { ok: false, err: '請選擇起始日與結束日' };
+  if (from > to) return { ok: false, err: '起始日不能晚於結束日' };
+  const months = monthsBetween(from, to);
+  if (months.length > 12) return { ok: false, err: '日期區間最長 12 個月' };
+  const f = from.replace(/-/g, ''), t = to.replace(/-/g, '');
+  return { ok: true, months, from, to, key: `${from}_${to}`, sheet: `${f}-${t}出差紀錄`, file: `${f}-${t}`,
+    title: `${from.replace(/-/g, '.')}～${to.slice(5).replace('-', '.')}`, label: `${from.replace(/-/g, '/')}～${to.replace(/-/g, '/')}` };
+}
+function dayRows(uid, pd) {
+  if (typeof pd === 'string') pd = { months: [pd], from: pd + '-01', to: monthEnd(pd) };
+  const rs = pd.months.flatMap(m => Object.values(monthData[m] || {})).filter(r => r.drive && r.uid === uid && r.route && r.date >= pd.from && r.date <= pd.to)
     .sort((a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || ''));
   const by = {}, order = [];
   rs.forEach(r => { if (!by[r.date]) { by[r.date] = []; order.push(r.date); } by[r.date].push(r); });
@@ -767,15 +944,17 @@ function dayRows(uid, m) {
 }
 function renderFuel() {
   const out = $('drFuelOut'); if (!out || !me) return;
-  const m = $('drFuelMonth').value, uid = $('drFuelUser').value || me.uid;
-  if (!monthData[m]) { out.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
-  const rows = dayRows(uid, m), key = `${uid}_${m}`, exp = exportLog[key];
+  const pd = fuelPeriod(), uid = $('drFuelUser').value || me.uid;
+  if (!pd.ok) { $('drFuelWarn').innerHTML = ''; out.innerHTML = `<div class="empty-state"><div class="icon">📅</div>${esc(pd.err || '請選擇期間')}</div>`; return; }
+  pd.months.forEach(watchMonth);
+  if (pd.months.some(m => !monthData[m])) { out.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
+  const rows = dayRows(uid, pd), key = `${uid}_${pd.key}`, exp = exportLog[key];
   const changed = exp ? rows.filter(r => r.updatedAt > exp).length : 0;
   $('drFuelWarn').innerHTML = changed ? `<div class="dr-warn">此報表已於 ${esc(new Date(exp).toLocaleString('zh-TW'))} 匯出過，之後有 ${changed} 天的日報被修改，已匯出的檔案數字可能不一致。</div>` : '';
-  if (!rows.length) { out.innerHTML = `<div class="empty-state"><div class="icon">⛽</div>${esc(userName(uid))} 在 ${esc(m)} 沒有自行開車的日報</div>`; return; }
+  if (!rows.length) { out.innerHTML = `<div class="empty-state"><div class="icon">⛽</div>${esc(userName(uid))} 在 ${esc(pd.label)} 沒有自行開車的日報</div>`; return; }
   const tot = round1(rows.reduce((a, r) => a + r.km, 0));
   out.innerHTML = `<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>日期</th><th>拜訪公司</th><th>拜訪人員</th><th>起點/終點</th><th style="text-align:right">公里</th><th style="text-align:right">油資</th></tr></thead><tbody>` +
-    rows.map(r => `<tr><td>${esc(r.date.slice(5).replace('-', '/'))}</td><td>${esc(r.company)}</td><td>${esc(r.contact)}</td><td>${esc(r.route)}</td><td style="text-align:right">${r.km}</td><td style="text-align:right">${Math.round(r.km * rate()).toLocaleString()}</td></tr>`).join('') +
+    rows.map(r => `<tr><td>${esc((pd.months.length > 1 && r.date.slice(0, 4) !== pd.from.slice(0, 4) ? r.date.slice(0, 4) + '/' : '') + r.date.slice(5).replace('-', '/'))}</td><td>${esc(r.company)}</td><td>${esc(r.contact)}</td><td>${esc(r.route)}</td><td style="text-align:right">${r.km}</td><td style="text-align:right">${Math.round(r.km * rate()).toLocaleString()}</td></tr>`).join('') +
     `<tr class="dr-sum"><td colspan="4">合計 ${rows.length} 天</td><td style="text-align:right">${tot}</td><td style="text-align:right">NT$ ${Math.round(tot * rate()).toLocaleString()}</td></tr></tbody></table></div>
     <div class="dr-hint" style="margin-top:8px">${exp ? '上次匯出：' + esc(new Date(exp).toLocaleString('zh-TW')) : '尚未匯出'}</div>`;
 }
@@ -785,19 +964,20 @@ function loadExcelJS() {
   return new Promise((res, rej) => { const s = document.createElement('script'); s.src = EXCELJS_URL; s.onload = res; s.onerror = () => rej(new Error('Excel 元件載入失敗')); document.head.appendChild(s); });
 }
 async function exportXlsx() {
-  const m = $('drFuelMonth').value, uid = $('drFuelUser').value || me.uid;
-  const rows = dayRows(uid, m);
-  if (!rows.length) { toast('這個月份沒有可匯出的資料'); return; }
+  const pd = fuelPeriod(), uid = $('drFuelUser').value || me.uid;
+  if (!pd.ok) { toast(pd.err || '請選擇期間'); return; }
+  const rows = dayRows(uid, pd);
+  if (!rows.length) { toast('這個期間沒有可匯出的資料'); return; }
   try { await loadExcelJS(); } catch (e) { toast(e.message); return; }
-  const y = m.slice(0, 4), mo = +m.slice(5, 7), yyyymm = m.replace('-', ''), R = rate();
+  const R = rate();
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(`${yyyymm}出差紀錄`, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } } });
+  const ws = wb.addWorksheet(pd.sheet, { pageSetup: { paperSize: 9, orientation: 'portrait', fitToPage: true, fitToWidth: 1, fitToHeight: 0, margins: { left: 0.25, right: 0.25, top: 0.5, bottom: 0.5, header: 0.3, footer: 0.3 } } });
   const F = '微软雅黑', thin = { style: 'thin' }, med = { style: 'medium' }, center = { horizontal: 'center', vertical: 'middle' };
   [13.375, 15.75, 14.5, 59.75, 45.625, 10.125, 8.25, 9.5, 8.25].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
   for (let r = 1; r <= 4; r++) ws.getRow(r).height = 23.25;
   ws.getRow(5).height = 27;
   ws.mergeCells('A2:I4');
-  Object.assign(ws.getCell('A2'), { value: `竑瑞科技 ${y}.${mo}月份出差記錄表`, font: { name: F, size: 22, bold: true }, alignment: center });
+  Object.assign(ws.getCell('A2'), { value: `竑瑞科技 ${pd.title}出差記錄表`, font: { name: F, size: 22, bold: true }, alignment: center });
   const hr = ws.getRow(6); hr.height = 30;
   ['日期', '拜訪公司', '拜訪人員', '事由', '起點/終點', '行車公里數', '油費金額', '總額', '有無報告'].forEach((h, i) => {
     Object.assign(hr.getCell(i + 1), { value: h, font: { name: F, size: 10 }, alignment: center, fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF8EA9DB' } }, border: { top: med, bottom: thin, left: i === 0 ? med : thin, right: i === 8 ? med : thin } });
@@ -823,20 +1003,20 @@ async function exportXlsx() {
   for (let q = sr; q <= sr + 3; q++) ws.getRow(q).height = 26.25;
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${yyyymm}_出差油資_${userName(uid)}.xlsx`;
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${pd.file}_出差油資_${userName(uid)}.xlsx`;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
-  try { await set(ref(db, `exportLog/${uid}_${m}`), new Date().toISOString()); } catch {}
+  try { await set(ref(db, `exportLog/${uid}_${pd.key}`), new Date().toISOString()); } catch {}
 }
 
 // ═════════════ 雜項支出報表 ═════════════
 const catOf = x => EXP_CATS.includes(x.cat) ? x.cat : '其他';
-function expenseData(m, uidFilter) {
-  const rs = Object.values(monthData[m] || {}).filter(r => !uidFilter || r.uid === uidFilter);
+function expenseData(pd, uidFilter) {
+  const rs = pd.months.flatMap(m => Object.values(monthData[m] || {})).filter(r => (!uidFilter || r.uid === uidFilter) && r.date >= pd.from && r.date <= pd.to);
   const uids = [...new Set(rs.map(r => r.uid))].sort((a, b) => userName(a).localeCompare(userName(b), 'zh-Hant'));
   return uids.map(uid => {
     const lines = [];
     rs.filter(r => r.uid === uid).sort((a, b) => a.date.localeCompare(b.date) || (a.start || '').localeCompare(b.start || ''))
-      .forEach(r => (r.exps || []).forEach(x => { if (parseFloat(x.amt)) lines.push({ date: r.date, cust: nm('customers', r.cust), site: nm('sites', r.site), cat: catOf(x), note: x.note || '', amt: parseFloat(x.amt) || 0 }); }));
+      .forEach(r => (r.exps || []).forEach(x => { if (parseFloat(x.amt)) lines.push({ date: r.date, cust: custName(r), site: siteName(r), cat: catOf(x), note: x.note || '', amt: parseFloat(x.amt) || 0 }); }));
     const byCat = Object.fromEntries(EXP_CATS.map(c => [c, 0]));
     lines.forEach(x => { byCat[x.cat] += x.amt; });
     return { uid, lines, byCat, expSum: lines.reduce((a, x) => a + x.amt, 0) };
@@ -844,10 +1024,12 @@ function expenseData(m, uidFilter) {
 }
 function renderExpense() {
   const out = $('drExpOut'); if (!out || !me) return;
-  const m = $('drExpMonth').value, u = isAdmin() ? $('drExpUser').value : me.uid;
-  if (!monthData[m]) { out.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
-  const ps = expenseData(m, u);
-  if (!ps.length) { out.innerHTML = `<div class="empty-state"><div class="icon">💰</div>${esc(m)} 沒有雜項支出紀錄</div>`; return; }
+  const pd = period('Exp'), u = isAdmin() ? $('drExpUser').value : me.uid;
+  if (!pd.ok) { out.innerHTML = `<div class="empty-state"><div class="icon">📅</div>${esc(pd.err || '請選擇期間')}</div>`; return; }
+  pd.months.forEach(watchMonth);
+  if (pd.months.some(m => !monthData[m])) { out.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
+  const ps = expenseData(pd, u);
+  if (!ps.length) { out.innerHTML = `<div class="empty-state"><div class="icon">💰</div>${esc(pd.label)} 沒有雜項支出紀錄</div>`; return; }
   const n = v => v ? Math.round(v).toLocaleString() : '';
   const R = 'style="text-align:right"';
   const tot = c => ps.reduce((a, p) => a + p.byCat[c], 0), all = ps.reduce((a, p) => a + p.expSum, 0);
@@ -867,11 +1049,11 @@ function sheetName(s, used) {
   used.add(n); return n;
 }
 async function exportExpense() {
-  const m = $('drExpMonth').value, u = isAdmin() ? $('drExpUser').value : me.uid;
-  const ps = expenseData(m, u);
-  if (!ps.length) { toast('這個月份沒有可匯出的資料'); return; }
+  const pd = period('Exp'), u = isAdmin() ? $('drExpUser').value : me.uid;
+  if (!pd.ok) { toast(pd.err || '請選擇期間'); return; }
+  const ps = expenseData(pd, u);
+  if (!ps.length) { toast('這個期間沒有可匯出的資料'); return; }
   try { await loadExcelJS(); } catch (e) { toast(e.message); return; }
-  const y = m.slice(0, 4), mo = +m.slice(5, 7), yyyymm = m.replace('-', '');
   const F = '微软雅黑', thin = { style: 'thin' }, box = { top: thin, bottom: thin, left: thin, right: thin };
   const head = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } }, money = '#,##0;-#,##0;"-"';
   const wb = new ExcelJS.Workbook(), used = new Set(['雜項支出總表']);
@@ -884,7 +1066,7 @@ async function exportExpense() {
   // 總表：人員 × 類別
   const sum = wb.addWorksheet('雜項支出總表');
   const nc = EXP_CATS.length + 2;
-  title(sum, `竑瑞科技 ${y}.${mo}月份雜項支出總表`, nc);
+  title(sum, `竑瑞科技 ${pd.title}雜項支出總表`, nc);
   sum.getColumn(1).width = 16; EXP_CATS.forEach((c, i) => { sum.getColumn(i + 2).width = c.length > 4 ? 14 : 11; }); sum.getColumn(nc).width = 13;
   header(sum, 3, ['人員', ...EXP_CATS, '合計']);
   ps.forEach((p, i) => {
@@ -901,7 +1083,7 @@ async function exportExpense() {
   // 各人明細
   ps.forEach(p => {
     const ws = wb.addWorksheet(names[p.uid]);
-    title(ws, `${userName(p.uid)} ${y}.${mo}月份雜項支出明細`, 6);
+    title(ws, `${userName(p.uid)} ${pd.title}雜項支出明細`, 6);
     [12, 16, 18, 16, 30, 12].forEach((w, i) => { ws.getColumn(i + 1).width = w; });
     header(ws, 3, ['日期', '客戶', '案場', '類別', '說明', '金額']);
     p.lines.forEach((x, i) => {
@@ -917,8 +1099,182 @@ async function exportExpense() {
   const buf = await wb.xlsx.writeBuffer();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
-  a.download = `${yyyymm}_雜項支出_${u ? userName(u) : '全員'}.xlsx`;
+  a.download = `${pd.file}_雜項支出_${u ? userName(u) : '全員'}.xlsx`;
   document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+// ═════════════ 總覽（依身分切換） ═════════════
+function reportsOf(uid, d) { return Object.values(monthData[ym(d)] || {}).filter(r => r.uid === uid && r.date === d); }
+function remindStart() {
+  const t = today(); let st = t.slice(0, 8) + '01';
+  if (+t.slice(8) <= 5) st = addDays(st, -1).slice(0, 8) + '01';
+  if (settings.remindFrom && settings.remindFrom > st) st = settings.remindFrom;
+  return st;
+}
+function missingDays(uid) {
+  const out = [], t = today(), u = users[uid] || {};
+  let st = remindStart(); if (u.createdAt && u.createdAt > st) st = u.createdAt;
+  for (let d = st, n = 0; d < t && n < 62; d = addDays(d, 1), n++) {
+    if (!isWorkdayFor(uid, d) || leaveOf(uid, d) || !monthData[ym(d)]) continue;
+    if (!reportsOf(uid, d).length) out.push(d);
+  }
+  return out;
+}
+const hoursOf = r => { if (!r.start || !r.end) return 0; const a = +r.start.slice(0, 2) * 60 + +r.start.slice(3), b = +r.end.slice(0, 2) * 60 + +r.end.slice(3) + (r.overnight ? 1440 : 0); return Math.max(0, (b - a) / 60); };
+const monthReports = m => Object.values(monthData[m] || {});
+function lastWorkday() { let d = addDays(today(), -1); for (let i = 0; i < 14 && !isWorkday(d); i++) d = addDays(d, -1); return d; }
+// ═════════════ 公司停班登記（管理員） ═════════════
+function renderClosures() {
+  const box = $('drClosureList'); if (!box || !isAdmin()) return;
+  if (!renderClosures.bound) {
+    renderClosures.bound = true;
+    $('drClosureAdd').onclick = async () => {
+      const d = $('drClosureDate').value, name = $('drClosureName').value.trim() || '颱風假', scope = $('drClosureScope').value || 'all';
+      if (!d) { toast('請選擇日期'); return; }
+      try { await set(ref(db, `closures/${d}`), { name, scope, by: me.uid, at: new Date().toISOString() }); $('drClosureDate').value = ''; toast('已登記停班'); } catch (e) { toast('登記失敗：' + e.message); }
+    };
+    box.addEventListener('click', async e => {
+      const b = e.target.closest('[data-closure-del]'); if (!b) return;
+      if (!confirm(`刪除 ${b.dataset.closureDel} 的停班登記？`)) return;
+      try { await remove(ref(db, `closures/${b.dataset.closureDel}`)); toast('已刪除'); } catch (er) { toast('刪除失敗：' + er.message); }
+    });
+  }
+  const o = offices(), since = addDays(today(), -60);
+  const list = Object.entries(closures).filter(([d]) => d >= since).sort((a, b) => b[0].localeCompare(a[0]));
+  box.innerHTML = list.length ? list.map(([d, c]) => `<div class="dr-leave-row"><span><b>${esc(mdw(d))}</b>　${esc(c.name)}<span class="dr-hint">　${c.scope === 'all' ? '全公司' : esc((o[c.scope] || {}).name || c.scope)}</span></span><button type="button" class="btn btn-ghost btn-sm" data-closure-del="${d}">刪除</button></div>`).join('') : '<div class="dr-hint">近期沒有停班登記</div>';
+  const sel = $('drClosureScope');
+  if (sel && !sel.options.length) sel.innerHTML = '<option value="all">全公司</option>' + Object.entries(o).map(([k, x]) => `<option value="${k}">只有${esc(x.name)}</option>`).join('');
+}
+const money = n => 'NT$ ' + Math.round(n).toLocaleString();
+function trackTag(t) {
+  const d = daysSince(t.date);
+  if (t.due && t.due < today()) return { cls: 'over', tag: `已逾期 ${t.due.slice(5).replace('-', '/')}`, d };
+  if (d > 7) return { cls: 'old', tag: '超過 7 天', d };
+  return { cls: '', tag: t.due ? `預計 ${t.due.slice(5).replace('-', '/')}` : '未定完成日', d };
+}
+function trackRows(list, withOwner, canClose) {
+  return list.map(([k, t]) => {
+    const g = trackTag(t);
+    return `<div class="dd-track ${g.cls}"><div class="dd-days"><b>${g.d}</b><span>天</span></div>
+      <div class="dd-main"><div class="dd-t">${esc(t.text)}</div><div class="dd-s">${esc(custName(t))}／${esc(siteName(t))}${withOwner ? '・' + esc(userName(t.uid)) : ''}</div></div>
+      <span class="dd-tag ${g.cls}">${esc(g.tag)}</span>${canClose ? `<button type="button" class="btn btn-ghost btn-sm" data-close="${k}">結案</button>` : ''}</div>`;
+  }).join('');
+}
+function sortTracks(list) {
+  return list.sort((a, b) => { const A = trackTag(a[1]), B = trackTag(b[1]); const w = x => x.cls === 'over' ? 2 : x.cls === 'old' ? 1 : 0; return w(B) - w(A) || B.d - A.d; });
+}
+function missStrip(uid, title) {
+  const miss = missingDays(uid); if (!miss.length) return '';
+  return `<div class="dd-miss"><b>${title || `還有 ${miss.length} 天的日報沒填`}</b><span class="dd-miss-hint">已排除週末、國定假日、公司停班與登記的休假</span>
+    <div class="dd-miss-btns">${miss.slice(0, 8).map(d => `<button type="button" class="dd-miss-btn" data-start="${d}">補填 ${esc(mdw(d))}</button>`).join('')}${miss.length > 8 ? `<span class="dr-hint">另有 ${miss.length - 8} 天</span>` : ''}</div></div>`;
+}
+function renderDash() {
+  const box = $('drDash'); if (!box || !me) return;
+  const m = ym(today());
+  if (!monthData[m]) { box.innerHTML = ''; return; }
+  box.innerHTML = isAdmin() ? dashAdmin(m) : dashEng(m);
+  if (!renderDash.bound) {
+    renderDash.bound = true;
+    box.addEventListener('click', e => {
+      const st = e.target.closest('[data-start]'); if (st) { startReport({ date: st.dataset.start === 'today' ? '' : st.dataset.start, office: st.dataset.office === '1' }); return; }
+      const c = e.target.closest('[data-close]'); if (c) { setClosed(c.dataset.close, true); return; }
+      const g = e.target.closest('[data-go]'); if (g) window.switchTab(g.dataset.go, document.querySelector(`.nav-tab[data-tab="${g.dataset.go}"]`));
+    });
+  }
+}
+function dashAdmin(m) {
+  const t = today(), lw = lastWorkday(), mem = members();
+  const expected = mem.filter(([uid]) => !leaveOf(uid, lw) && !closureFor(uid, lw));
+  const reported = expected.filter(([uid]) => reportsOf(uid, lw).length);
+  const missing = expected.filter(([uid]) => !reportsOf(uid, lw).length).map(([, u]) => u.name);
+  const open = Object.entries(tracking).filter(([, x]) => !x.closedAt);
+  const aged = open.filter(([, x]) => daysSince(x.date) > 7).length, over = open.filter(([, x]) => x.due && x.due < t).length;
+  const mr = monthReports(m);
+  const pd = new Set(mr.map(r => r.uid + '|' + r.date)), pdOff = new Set(mr.filter(isOfficeR).map(r => r.uid + '|' + r.date));
+  const km = mr.filter(r => r.drive && r.route).reduce((a, r) => a + kmOf(r.route), 0), fuel = Math.round(round1(km) * rate());
+  const expSum = mr.reduce((a, r) => a + (r.exps || []).reduce((b, x) => b + (parseFloat(x.amt) || 0), 0), 0);
+  // 回報狀態
+  const people = mem.map(([uid, u]) => {
+    const rs = reportsOf(uid, lw), lv = leaveOf(uid, lw), cl = closureFor(uid, lw), miss = missingDays(uid).length;
+    const h = rs.reduce((a, r) => a + hoursOf(r), 0), ovn = rs.some(r => r.overnight);
+    const dot = rs.length ? ((ovn || h > 10) ? 'gold' : 'green') : (lv || cl) ? 'blue' : 'red';
+    const sub = rs.length ? null : lv ? `休假${lv.note ? '（' + lv.note + '）' : ''}` : cl ? `公司停班（${cl.name}）` : '未回報';
+    const sub2 = sub !== null ? sub : [...new Set(rs.map(r => `${custName(r)}／${siteName(r)}`))].join('、');
+    const curLeave = Object.values(leaves).find(l => l.uid === uid && l.to >= t && l.from <= addDays(t, 7));
+    const note = miss ? `<span class="red">本月未填 ${miss} 天</span>` : curLeave ? `<span class="blue">休假 ${curLeave.from.slice(5).replace('-', '/')}～${curLeave.to.slice(5).replace('-', '/')}</span>` : '<span class="green">本月全數已填</span>';
+    return `<div class="dd-person"><span class="dd-dot ${dot}"></span><div class="dd-main"><div class="dd-t">${esc(u.name)}</div><div class="dd-s ${!rs.length && !lv && !cl ? 'red' : ''}">${esc(sub2)}</div></div>
+      <div class="dd-right"><span>${rs.length ? round1(h) + 'h' + (ovn ? '・跨夜' : '') : '—'}</span>${note}</div></div>`;
+  }).join('');
+  // 近 7 天案場
+  const since = addDays(t, -7), fr = [ym(since), m].filter((x, i, a) => a.indexOf(x) === i).flatMap(monthReports).filter(r => !isOfficeR(r) && r.date >= since && r.date <= t);
+  const bySite = {};
+  fr.forEach(r => { const k = r.site; const o = bySite[k] = bySite[k] || { name: `${custName(r)}／${siteName(r)}`, visits: 0, days: new Set(), who: new Set(), site: k }; o.visits++; o.days.add(r.uid + '|' + r.date); o.who.add(userName(r.uid)); });
+  const siteRows = Object.values(bySite).sort((a, b) => b.visits - a.visits).slice(0, 8).map(o => {
+    const op = open.filter(([, x]) => x.site === o.site).length;
+    return `<tr><td>${esc(o.name)}${o.visits >= 3 ? '<span class="dd-rep">反覆到場</span>' : ''}</td><td class="r">${o.visits}</td><td class="r">${o.days.size}</td><td class="r gold">${op || ''}</td><td class="muted">${esc([...o.who].join('、'))}</td></tr>`;
+  }).join('');
+  // 人力分布
+  const byCust = {};
+  mr.forEach(r => { const k = custName(r); (byCust[k] = byCust[k] || new Set()).add(r.uid + '|' + r.date); });
+  const custArr = Object.entries(byCust).map(([k, v]) => [k, v.size]).sort((a, b) => b[1] - a[1]);
+  const maxC = custArr.length ? custArr[0][1] : 1;
+  return `
+  <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>總覽</h2></div><span class="dd-role">主管視角</span></div>
+  ${missStrip(me.uid, '您自己還有日報沒填')}
+  <div class="dd-kpis">
+    <div class="dd-kpi"><span>最近工作日（${esc(mdw(lw))}）回報</span><b>${reported.length}<small> / ${expected.length} 人</small></b><em class="${missing.length ? 'red' : 'green'}">${missing.length ? '未回報：' + esc(missing.join('、')) : '全員已回報'}</em></div>
+    <div class="dd-kpi"><span>未結案待追蹤</span><b class="gold">${open.length}<small> 件</small></b><em class="${aged || over ? 'red' : ''}">超過 7 天 ${aged} 件・已逾期 ${over} 件</em></div>
+    <div class="dd-kpi"><span>本月出勤人天</span><b>${pd.size}<small> 人天</small></b><em>外勤 ${pd.size - pdOff.size}・內勤 ${pdOff.size}</em></div>
+    <div class="dd-kpi"><span>本月費用</span><b>${money(fuel + expSum)}</b><em>油資 ${fuel.toLocaleString()}（${round1(km)} km）・雜項 ${Math.round(expSum).toLocaleString()}</em></div>
+  </div>
+  <div class="dd-row">
+    <div class="card dd-wide"><div class="card-title"><span>需要關注的待追蹤</span><button type="button" class="btn btn-ghost btn-sm" data-go="track">看全部 ${open.length} 件</button></div>
+      ${open.length ? trackRows(sortTracks(open).slice(0, 5), true, false) : '<div class="dr-hint">目前沒有未結案事項</div>'}</div>
+    <div class="card dd-narrow"><div class="card-title"><span>${esc(mdw(lw))} 回報狀態</span><span class="dr-hint">右側為本月狀況</span></div>${people}</div>
+  </div>
+  <div class="dd-row">
+    <div class="card dd-wide"><div class="card-title"><span>近 7 天案場動態</span><span class="dr-hint">7 天內到場 3 次以上標示反覆到場</span></div>
+      ${siteRows ? `<div style="overflow-x:auto"><table class="data-table dd-table"><thead><tr><th>客戶／案場</th><th class="r">到場</th><th class="r">人天</th><th class="r">未結案</th><th>人員</th></tr></thead><tbody>${siteRows}</tbody></table></div>` : '<div class="dr-hint">近 7 天沒有外勤紀錄</div>'}</div>
+    <div class="card dd-narrow"><div class="card-title"><span>本月人力分布（人天）</span></div>
+      ${custArr.length ? custArr.map(([k, v]) => `<div class="dd-bar"><div class="dd-bar-h"><span>${esc(k)}</span><span>${v} 人天</span></div><div class="dd-bar-t"><div style="width:${Math.max(4, v / maxC * 100)}%"></div></div></div>`).join('') : '<div class="dr-hint">本月尚無資料</div>'}</div>
+  </div>
+  <div class="dd-sub">工單與庫存</div>`;
+}
+function dashEng(m) {
+  const t = today(), uid = me.uid, mr = monthReports(m).filter(r => r.uid === uid);
+  const todayRs = reportsOf(uid, t), lv = leaveOf(uid, t), cl = closureFor(uid, t);
+  let cta;
+  if (cl && !todayRs.length) cta = `<div class="dd-cta blue"><div><b>今天公司停班（${esc(cl.name)}）</b><span>不需填寫日報；若仍有出勤，請照常填寫。</span></div><div class="dd-cta-btns"><button type="button" class="btn btn-ghost" data-start="today">仍有出勤，填寫日報</button></div></div>`;
+  else if (lv) cta = `<div class="dd-cta blue"><div><b>今天休假中</b><span>${esc(mdw(lv.from))}～${esc(mdw(lv.to))}${lv.note ? '・' + esc(lv.note) : ''}，不需填寫日報。</span></div></div>`;
+  else if (todayRs.length) cta = `<div class="dd-cta green"><div><b>今天已填 ${todayRs.length} 筆日報</b><span>同一天跑多個案場，每個案場各填一筆。</span></div><div class="dd-cta-btns"><button type="button" class="btn btn-ghost" data-start="today">再填一筆</button></div></div>`;
+  else cta = `<div class="dd-cta"><div><b>${isWorkdayFor(uid, t) ? '今天的日報還沒填' : '今天是假日'}</b><span>${isWorkdayFor(uid, t) ? '收工後記得填寫，主管明早 08:00 會收到彙整。' : '若有加班出勤，請照常填寫日報。'}</span></div>
+    <div class="dd-cta-btns"><button type="button" class="btn btn-ghost dd-gold-outline" data-start="today" data-office="1">今天是內勤</button><button type="button" class="btn btn-primary" data-start="today">開始填寫日報</button></div></div>`;
+  const open = sortTracks(Object.entries(tracking).filter(([, x]) => x.uid === uid && !x.closedAt));
+  const days = new Set(mr.map(r => r.date)).size;
+  const km = round1(mr.filter(r => r.drive && r.route).reduce((a, r) => a + kmOf(r.route), 0));
+  const expSum = mr.reduce((a, r) => a + (r.exps || []).reduce((b, x) => b + (parseFloat(x.amt) || 0), 0), 0);
+  const prev = ym(addDays(t.slice(0, 8) + '01', -1));
+  const recent = [...monthReports(m), ...monthReports(prev)].filter(r => r.uid === uid).sort((a, b) => b.date.localeCompare(a.date) || (b.start || '').localeCompare(a.start || '')).slice(0, 3);
+  const myTickets = Object.entries(tickets).filter(([, x]) => x.assign && (x.assign === me.name || x.assign === me.cname) && x.status !== 'done');
+  const stLabel = { pending: '待處理', progress: '進行中' };
+  return `
+  <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>${esc(me.name)}，你好</h2></div><span class="dd-role blue">工程師視角</span></div>
+  ${cta}
+  ${missStrip(uid)}
+  <div class="dd-row">
+    <div class="card dd-wide"><div class="card-title"><span>我的待追蹤（${open.length}）</span><button type="button" class="btn btn-ghost btn-sm" data-go="track">前往待追蹤</button></div>
+      ${open.length ? trackRows(open.slice(0, 5), false, true) : '<div class="dr-hint">沒有未結案的事項</div>'}</div>
+    <div class="card dd-narrow"><div class="card-title"><span>我的本月數字</span></div>
+      <div class="dd-mini"><div><span>出勤</span><b>${days} 天</b></div><div><span>里程</span><b>${km} km</b></div><div><span>油資</span><b>${money(km * rate())}</b></div><div><span>雜項支出</span><b>${money(expSum)}</b></div></div>
+      <button type="button" class="btn btn-ghost btn-sm" data-go="fuel" style="margin-top:12px">匯出油資／雜項支出報表</button></div>
+  </div>
+  <div class="dd-row">
+    <div class="card dd-wide"><div class="card-title"><span>最近的日報</span></div>
+      ${recent.length ? recent.map(r => `<div class="dd-rep-row"><span class="dd-rd">${esc(r.date.slice(5).replace('-', '/'))}</span><div class="dd-main"><div class="dd-t">${esc(custName(r))}／${esc(siteName(r))}</div><div class="dd-s">${esc((r.items || []).map((x, i) => `${i + 1}. ${x}`).join(' ') || '（無處理事項）')}</div></div><span class="dd-s">${round1(hoursOf(r))}h${r.overnight ? '・跨夜' : ''}${r.drive ? '・' + round1(kmOf(r.route)) + ' km' : ''}</span></div>`).join('') : '<div class="dr-hint">還沒有日報</div>'}</div>
+    <div class="card dd-narrow"><div class="card-title"><span>指派給我的工單</span></div>
+      ${myTickets.length ? myTickets.slice(0, 5).map(([id, x]) => `<div class="dd-tk" onclick="window.openTicketDetail('${esc(id)}')"><div class="dd-t">${esc(x.title || id)}</div><div class="dd-s gold">${esc(stLabel[x.status] || x.status || '')}${x.due ? '・到期 ' + esc(String(x.due).slice(5).replace('-', '/')) : ''}</div></div>`).join('') : '<div class="dr-hint">沒有指派給你的工單</div>'}</div>
+  </div>
+  <div class="dd-sub">工單與庫存</div>`;
 }
 
 // ═════════════ 管理：主檔與成員 ═════════════
@@ -951,12 +1307,18 @@ function renderMembers() {
   const tb = $('drMembers'); if (!tb || !isAdmin()) return;
   const gi = $('drGNames');
   if (gi && document.activeElement !== gi) gi.value = gformNames().join(', ');
+  const rfi = $('drRemindFrom');
+  if (rfi && document.activeElement !== rfi) rfi.value = settings.remindFrom || '';
   const dt = $('drDigestTo');
   if (dt && document.activeElement !== dt) dt.value = (settings.digestTo || []).join(', ');
   const gs = $('drGKeyState'), k = gmapsKey();
   if (gs) gs.textContent = k ? `已設定（${k.slice(0, 4)}••••••${k.slice(-4)}）` : '尚未設定';
   if (!renderMembers.gbound) {
     renderMembers.gbound = true;
+    $('drRemindSave').onclick = async () => {
+      const v = $('drRemindFrom').value;
+      try { await set(ref(db, 'settings/remindFrom'), v || ''); toast(v ? `未填提醒自 ${v} 起算` : '已清除，改為自本月 1 號起算'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
     $('drDigestToSave').onclick = async () => {
       const list = [...new Set($('drDigestTo').value.split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
       const bad = list.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
