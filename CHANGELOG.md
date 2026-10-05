@@ -137,3 +137,14 @@ LINE 推播（monitor.js）已停用。
 | daily-digest.js（PC 端） | 公司停班支援指定成員 |
 
 users 新增 defaultOrigin 欄位。
+
+## v2.2：Service Report、自訂預設起點、主檔刪除（2026-10-05）
+
+| 檔案 | 修改內容 |
+|---|---|
+| js/dailyreport.js | 日報紀錄新增「Service Report」：以公司範本產出 Excel，自動帶入日期、客戶地址、服務明細、進出場時間、交通時數；可勾選同案場前後 30 天的多筆日報（多天或多位同仁合併一張）；CSR No. 依日期自動編號 CSR-YYYYMMDD-0001；客戶全名、門禁卡號、機台資料第一次填寫後自動記住；休息時數於工時超過 6 小時預設 1；開立紀錄可重新匯出。預設起點新增「自訂地點」（由管理員填寫簡稱與地址）；客戶／案場／產品清單預設隱藏已停用項目，已停用且未被使用的項目可刪除 |
+| assets/sr_template.xlsx | 新檔：Service Report 範本 |
+| css/style.css | Service Report 視窗樣式 |
+| database.rules.json | 新增 equipment、badges、srLog 規則 |
+
+Service Report 服務時數公式調整為「(出場日期＋出場時間)－(進場日期＋進場時間)」以支援跨夜，其餘與範本相同。
