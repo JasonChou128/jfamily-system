@@ -446,3 +446,6 @@ body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: va
 .dr-sr-table .dr-in { padding: 6px 8px; font-size: 13px; min-width: 70px; }
 .dr-sr-table input[type=number] { width: 64px; min-width: 64px; }
 #srModal textarea.dr-in { resize: vertical; line-height: 1.6; }
+.dr-notes { margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--accent); font-size: 12.5px; }
+.dr-notes div { padding: 2px 0; }
+.dr-notes span { color: var(--accent); margin-right: 8px; }
