@@ -1,6 +1,7 @@
 // J Family v1.6 第二階段 — 工作日報、主檔、油資報表
 // 資料節點：master/{customers,sites,products}、reports/{YYYY-MM}/{id}、settings、exportLog
 import { db, today } from './config.js';
+import { buildWeekly } from './weekly-builder.js';
 import { ref, set, push, update, remove, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const DEFAULTS = {
@@ -112,6 +113,7 @@ export function setUsers(u) {
   if (me && users[me.uid]) me = { ...me, ...users[me.uid] };
   if (route && !editing && !route.stops.length) { route.origin = userOrigin(me.uid); if ($('drDrive') && $('drDrive').checked) renderRoute(); }
   fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense(); renderTrack(); renderLeave(); renderDash(); renderClosures();
+  if ($('drWeeklyCard')) $('drWeeklyCard').hidden = !isAdmin();
 }
 
 export function newReport() { resetForm(); $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -263,6 +265,14 @@ function buildPanels() {
   </div></div>`;
 
   $('panel-track').innerHTML = `
+  <div class="card" id="drWeeklyCard" hidden>
+    <div class="card-title"><span>📊 工作週報</span><button class="btn btn-primary btn-sm" id="drWeeklyXlsx">匯出 Excel</button></div>
+    <div class="dr-grid">
+      <div class="form-group"><label>週別（選該週任一天）</label><input type="date" id="drWeekDay"></div>
+      <div class="form-group"><label>期間</label><input class="dr-in" id="drWeekRange" disabled></div>
+    </div>
+    <p class="dr-hint">三頁：「案場週況」本週有動態或有未結案事項的案場與燈號；「行程」每位工程師一週出勤表；「案場履歷」所有曾有服務紀錄的案場（累積）。</p>
+  </div>
   <div class="card">
     <div class="card-title"><span>📌 待追蹤事項</span></div>
     <div id="drTrackStat"></div>
@@ -324,6 +334,10 @@ function buildPanels() {
       <button class="btn btn-primary btn-sm" id="drRemindSave">儲存起算日</button>
     </div>
     <div class="dr-gnames">
+      <div class="form-group" style="flex:1;margin:0"><label>工作週報收件人（每週一 08:30 自動寄出上週週報 Excel；留空則不寄）</label><input class="dr-in" id="drWeeklyTo" placeholder="例如 boss@gbgtek.com.tw, jason.chou@gbgtek.com.tw"></div>
+      <button class="btn btn-primary btn-sm" id="drWeeklyToSave">儲存收件人</button>
+    </div>
+    <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>每日彙整信收件人（以逗號分隔，留空則只寄給 Jason）</label><input class="dr-in" id="drDigestTo" placeholder="jason.chou@gbgtek.com.tw"></div>
       <button class="btn btn-primary btn-sm" id="drDigestToSave">儲存收件人</button>
     </div>
@@ -347,7 +361,14 @@ function buildPanels() {
   $('drExpUser').onchange = renderExpense;
   $('drExpXlsx').onclick = exportExpense;
   $('drTrackMode').onchange = renderTrack; $('drTrackUser').onchange = renderTrack;
-  const onTrackClick = e => { const c = e.target.closest('[data-close]'), o = e.target.closest('[data-reopen]'); if (c) setClosed(c.dataset.close, true); if (o) setClosed(o.dataset.reopen, false); };
+  $('drWeekDay').value = addDays(weekStart(today()), -7); showWeekRange();
+  $('drWeekDay').onchange = showWeekRange;
+  $('drWeeklyXlsx').onclick = exportWeekly;
+  const onTrackClick = e => {
+    const c = e.target.closest('[data-close]'), o = e.target.closest('[data-reopen]'), n = e.target.closest('[data-note]');
+    if (c) setClosed(c.dataset.close, true); if (o) setClosed(o.dataset.reopen, false);
+    if (n) addNote(n.dataset.note, e.currentTarget.id === 'drSiteOpen' ? $('drDate').value : today());
+  };
   $('panel-track').addEventListener('click', onTrackClick);
   $('drSiteOpen').addEventListener('click', onTrackClick);
   $('drListMonth').onchange = () => { watchMonth($('drListMonth').value); renderList(); };
@@ -840,6 +861,9 @@ async function syncTracking(rid, month, rec) {
     const t = { uid: rec.uid, month, rid, idx: i, text: rec.items[i], cust: rec.cust, site: rec.site, date: rec.date, due: m2.due || '' };
     if (isOfficeR(rec)) { t.kind = 'office'; t.office = rec.office; }
     if (m2.closedAt) Object.assign(t, { closedAt: m2.closedAt, closedBy: m2.closedBy || '', closeNote: m2.closeNote || '' });
+    // 保留既有的進度紀錄：同一筆日報、相同事項文字者沿用
+    const old = tracking[`${rid}_${i}`] && tracking[`${rid}_${i}`].text === t.text ? tracking[`${rid}_${i}`] : Object.values(tracking).find(x => x.rid === rid && x.text === t.text);
+    if (old && old.notes) t.notes = old.notes;
     ups[`${rid}_${i}`] = t;
   });
   if (Object.keys(ups).length) await update(ref(db, 'tracking'), ups);
@@ -858,12 +882,20 @@ async function setClosed(key, close) {
     toast(close ? '已結案' : '已重新開啟');
   } catch (e) { toast('更新失敗：' + e.message); }
 }
+async function addNote(key, date) {
+  const t = tracking[key]; if (!t || !canEdit(t)) return;
+  const text = prompt(`更新進度：${t.text}\n請簡述這次的進展（例如：料件已到，預計 10/6 更換）`, '');
+  if (text === null || !text.trim()) return;
+  try { await set(push(ref(db, `tracking/${key}/notes`)), { date: date || today(), text: text.trim(), by: me.uid, at: new Date().toISOString() }); toast('已更新進度'); }
+  catch (e) { toast('更新失敗：' + e.message); }
+}
+const notesOf = t => Object.values(t.notes || {}).sort((a, b) => a.date.localeCompare(b.date) || (a.at || '').localeCompare(b.at || ''));
 function renderSiteOpen() {
   const box = $('drSiteOpen'); if (!box || !me) return;
   const sid = officeMode ? '__none__' : $('drSite').value;
   const list = Object.entries(tracking).filter(([, t]) => t.site === sid && !t.closedAt && canEdit(t) && !(editing && t.rid === editing.id));
   box.innerHTML = list.length ? `<div class="dr-siteopen"><b>此案場尚有 ${list.length} 件待追蹤</b>` + list.map(([k, t]) =>
-    `<div class="dr-siteopen-row"><span>${esc(t.text)}<span class="dr-hint">　${esc(userName(t.uid))}・${esc(t.date.slice(5).replace('-', '/'))} 起・${daysSince(t.date)} 天</span></span><button type="button" class="btn btn-ghost btn-sm" data-close="${k}">結案</button></div>`).join('') + '</div>' : '';
+    `<div class="dr-siteopen-row"><span>${esc(t.text)}<span class="dr-hint">　${esc(userName(t.uid))}・${esc(t.date.slice(5).replace('-', '/'))} 起・${daysSince(t.date)} 天</span></span><span style="display:flex;gap:4px"><button type="button" class="btn btn-ghost btn-sm" data-note="${k}">更新進度</button><button type="button" class="btn btn-ghost btn-sm" data-close="${k}">結案</button></span></div>`).join('') + '</div>' : '';
 }
 function renderTrack() {
   const out = $('drTrackOut'); if (!out || !me) return;
@@ -882,8 +914,9 @@ function renderTrack() {
       const d = daysSince(t.date), od = t.due && t.due < today() && !t.closedAt;
       return `<div class="dr-card ${od ? 'dr-overdue' : ''}"><div class="dr-card-h"><b>${esc(t.text)}</b><span class="dr-tag">${esc(userName(t.uid))}</span></div>
         <div class="dr-hint">${esc(t.date.replace(/-/g, '/'))} 起${t.closedAt ? `・${esc(new Date(t.closedAt).toLocaleDateString('zh-TW'))} 結案（${esc(userName(t.closedBy))}）` : `・已 ${d} 天`}${t.due ? `・預計完成 ${esc(t.due.replace(/-/g, '/'))}${od ? '（已逾期）' : ''}` : ''}</div>
+        ${notesOf(t).length ? `<div class="dr-notes">${notesOf(t).map(n => `<div><span>${esc(n.date.slice(5).replace('-', '/'))}</span>${esc(n.text)}</div>`).join('')}</div>` : ''}
         ${t.closeNote ? `<div class="dr-hint">結案說明：${esc(t.closeNote)}</div>` : ''}
-        ${canEdit(t) ? `<div class="dr-actions">${t.closedAt ? `<button class="btn btn-ghost btn-sm" data-reopen="${k}">重新開啟</button>` : `<button class="btn btn-primary btn-sm" data-close="${k}">結案</button>`}</div>` : ''}</div>`;
+        ${canEdit(t) ? `<div class="dr-actions">${t.closedAt ? `<button class="btn btn-ghost btn-sm" data-reopen="${k}">重新開啟</button>` : `<button class="btn btn-ghost btn-sm" data-note="${k}">更新進度</button><button class="btn btn-primary btn-sm" data-close="${k}">結案</button>`}</div>` : ''}</div>`;
     }).join('')).join('');
 }
 
@@ -1508,6 +1541,27 @@ function renderSRLog() {
   box.innerHTML = list.length ? list.map(([k, x]) => `<div class="dr-leave-row"><span><b>${esc(k)}</b>　${esc(nm('customers', x.cust))}／${esc(nm('sites', x.site))}<span class="dr-hint">　${esc((x.eq || {}).tool || '')}　${esc((x.rows || []).map(r => r.name).filter((v, i, a) => a.indexOf(v) === i).join('、'))}</span></span><button type="button" class="btn btn-ghost btn-sm" data-sr-again="${esc(k)}">重新匯出</button></div>`).join('') : '<div class="dr-hint">尚未開立 Service Report</div>';
 }
 
+// ═════════════ 工作週報（主管格式：週報＋行程） ═════════════
+function weekStart(d0) { const g = new Date(d0 + 'T00:00:00').getDay(); return addDays(d0, g === 0 ? -6 : 1 - g); }
+function showWeekRange() {
+  const ws = weekStart($('drWeekDay').value || today()), we = addDays(ws, 6);
+  $('drWeekRange').value = `${ws.replace(/-/g, '/')}（一）～ ${we.slice(5).replace('-', '/')}（日）`;
+  [ym(ws), ym(we)].forEach(watchMonth);
+}
+const md = d0 => `${+d0.slice(5, 7)}/${+d0.slice(8, 10)}`;
+async function exportWeekly() {
+  const ws = weekStart($('drWeekDay').value || today());
+  let all;
+  try { all = (await get(ref(db, 'reports'))).val() || {}; } catch (e) { toast('讀取日報失敗：' + e.message); return; }
+  try { await loadExcelJS(); } catch (e) { toast(e.message); return; }
+  const { wb } = buildWeekly(ExcelJS, { ws, today: today(), all, tracking, master, users, leaves, closures, holidays, workdays, srLog, offices: offices() });
+  const buf = await wb.xlsx.writeBuffer();
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+  a.download = `GBG_Weekly_Report_售後服務_${ws.slice(5).replace('-', '')}.xlsx`;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
 // ═════════════ 管理：主檔與成員 ═════════════
 let showOff = { customers: false, sites: false, products: false };
 function renderMaster() {
@@ -1575,6 +1629,8 @@ function renderMembers() {
   if (gi && document.activeElement !== gi) gi.value = gformNames().join(', ');
   const rfi = $('drRemindFrom');
   if (rfi && document.activeElement !== rfi) rfi.value = settings.remindFrom || '';
+  const wt = $('drWeeklyTo');
+  if (wt && document.activeElement !== wt) wt.value = (settings.weeklyTo || []).join(', ');
   const dt = $('drDigestTo');
   if (dt && document.activeElement !== dt) dt.value = (settings.digestTo || []).join(', ');
   const gs = $('drGKeyState'), k = gmapsKey();
@@ -1584,6 +1640,12 @@ function renderMembers() {
     $('drRemindSave').onclick = async () => {
       const v = $('drRemindFrom').value;
       try { await set(ref(db, 'settings/remindFrom'), v || ''); toast(v ? `未填提醒自 ${v} 起算` : '已清除，改為自本月 1 號起算'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
+    $('drWeeklyToSave').onclick = async () => {
+      const list = [...new Set($('drWeeklyTo').value.split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
+      const bad = list.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+      if (bad.length) { toast('Email 格式不正確：' + bad.join('、')); return; }
+      try { await set(ref(db, 'settings/weeklyTo'), list); toast(list.length ? `週報收件人已儲存（${list.length} 位）` : '已清空，週報將不自動寄出'); } catch (er) { toast('儲存失敗：' + er.message); }
     };
     $('drDigestToSave').onclick = async () => {
       const list = [...new Set($('drDigestTo').value.split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
