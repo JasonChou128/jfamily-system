@@ -70,11 +70,11 @@
     <div class="nav-tab active" onclick="switchTab('dashboard',this)">📊 總覽</div>
     <div class="nav-tab" data-tab="report" onclick="switchTab('report',this)">📝 工作日報</div>
     <div class="nav-tab" data-tab="track" onclick="switchTab('track',this)">📌 待追蹤</div>
+    <div class="nav-tab" data-tab="tickets" onclick="switchTab('tickets',this)">🎫 FMX Issue Ticket</div>
     <div class="nav-tab" data-tab="fuel" onclick="switchTab('fuel',this)">⛽ 油資／支出</div>
     <div class="nav-tab jf-hidden" onclick="switchTab('attendance',this)">🕐 出勤打卡</div>
     <div class="nav-tab" onclick="switchTab('inventory',this)">📦 物料管理</div>
     <div class="nav-tab jf-hidden" onclick="switchTab('calendar',this)">📅 行事曆</div>
-    <div class="nav-tab" data-tab="tickets" onclick="switchTab('tickets',this)">🎫 原廠工單</div>
     <div class="nav-tab" id="adminTab" data-tab="admin" onclick="switchTab('admin',this)" style="display:none">⚙️ 管理</div>
   </div>
 
@@ -83,7 +83,7 @@
     <!-- DASHBOARD -->
     <div class="panel active" id="panel-dashboard">
       <div id="drDash"></div>
-      <!-- v2.5：舊版票單統計已由「原廠工單」取代，保留程式碼但隱藏 -->
+      <!-- v2.5：舊版票單統計已由「FMX Issue Ticket」取代，保留程式碼但隱藏 -->
       <div class="dash-grid jf-hidden">
         <div class="stat-card gold jf-hidden"><div class="stat-val" id="stat-present">0</div><div class="stat-label">今日出勤</div></div>
         <div class="stat-card red"><div class="stat-val" id="stat-tickets-open">0</div><div class="stat-label">待處理票單</div></div>
@@ -199,9 +199,9 @@
 
     <!-- TICKETS -->
     <div class="panel" id="panel-tickets">
-      <!-- v2.5：原廠工單（Fabmatics Redmine，24 小時 PC 每天同步 4 次，只讀） -->
+      <!-- v2.5：FMX Issue Ticket（Fabmatics Redmine，24 小時 PC 每天同步 4 次，只讀） -->
       <div class="card">
-        <div class="card-title"><span>🎫 原廠工單（Fabmatics）</span><a class="btn btn-ghost btn-sm" href="https://redmine.fabmatics.com/issues?set_filter=1&amp;status_id=o" target="_blank" rel="noopener noreferrer">開啟 Redmine</a></div>
+        <div class="card-title"><span>🎫 FMX Issue Ticket</span><a class="btn btn-ghost btn-sm" href="https://redmine.fabmatics.com/issues?set_filter=1&amp;status_id=o" target="_blank" rel="noopener noreferrer">開啟 Redmine</a></div>
         <div id="fabHead"><div class="empty-state"><div class="icon">⏳</div>載入中...</div></div>
         <div class="fb-filters">
           <select class="dr-in" id="fabFSite"></select>

@@ -1,7 +1,7 @@
 // J Family 工作週報產生器（網頁與 24 小時 PC 共用，兩邊檔案內容須一致）
 // buildWeekly(ExcelJS, D) → { wb, summary }
 // D: { ws, today, all(reports), tracking, master, users, leaves, closures, holidays, workdays, srLog, offices, fab }
-// v2.5：出勤表只列需填日報的成員（助理不列）；新增「原廠工單」工作表（fab = fabTickets 節點）
+// v2.5：出勤表只列需填日報的成員（助理不列）；新增「FMX Issue Ticket」工作表（fab = fabTickets 節點）
 export function buildWeekly(ExcelJS, D) {
   const { ws, all, tracking, master, users, srLog } = D;
   const leaves = D.leaves || {}, closures = D.closures || {}, holidays = D.holidays || {}, workdays = D.workdays || {};
@@ -84,11 +84,11 @@ export function buildWeekly(ExcelJS, D) {
   s1.getCell(`B${fr + 1}`).value = `列入條件：本週有到場，或仍有未結案事項的案場。期間 ${ws.replace(/-/g, '/')}～${we.slice(5).replace('-', '/')}。`;
   s1.getCell(`B${fr + 1}`).font = { ...F, size: 10, color: { argb: 'FF666666' } };
 
-  // ── 1b. 原廠工單（Fabmatics Redmine，依案場一行） ──
+  // ── 1b. FMX Issue Ticket（Fabmatics Redmine，依案場一行） ──
   const fab = D.fab || {}, fItems = Object.values(fab.items || {});
   const fsum = [];
   if (fItems.length) {
-    const sf = wb.addWorksheet('原廠工單', { views: [{ state: 'frozen', ySplit: 1 }], pageSetup: { ...PS, orientation: 'portrait' } });
+    const sf = wb.addWorksheet('FMX Issue Ticket', { views: [{ state: 'frozen', ySplit: 1 }], pageSetup: { ...PS, orientation: 'portrait' } });
     [20, 10, 14, 14, 10, 12, 12].forEach((w, i) => { sf.getColumn(i + 1).width = w; });
     header(sf, ['案場', '開啟中', '等 GBG 回覆', '等原廠回覆', '已逾期', '本週新開', '本週結案']);
     const asOf = D.today, inWk = iso => { if (!iso) return false; const d0 = dstr(new Date(iso)); return d0 >= ws && d0 <= we; };

@@ -1,4 +1,4 @@
-// J Family v2.5 — 原廠工單（Fabmatics Redmine）
+// J Family v2.5 — FMX Issue Ticket（Fabmatics Redmine）
 // 資料由 24 小時 PC 每天同步 4 次寫入 fabTickets：{ meta:{at,syncedAt,n,open}, items:{id:{...}} }
 // 欄位：site 案場簡稱、s 標題、st 狀態、c 已結案、a 負責人、pr 優先、due 到期、u 更新、cr 建立、co 結案、
 //       l 最新留言 {by,at,t}、ball 'gbg' 等 GBG 回覆／'fab' 等原廠回覆
@@ -22,7 +22,7 @@ export const fabData = () => fab;
 export function onFab(fn) { listeners.push(fn); fn(fab); }
 export function startFab() {
   onValue(ref(db, 'fabTickets'), s => { const v = s.val() || {}; fab = { meta: v.meta || {}, items: v.items || {} }; listeners.forEach(f => f(fab)); renderFabPanel(); },
-    () => { const el = document.getElementById('fabHead'); if (el) el.innerHTML = '<div class="dr-hint">無法讀取原廠工單（需更新資料庫安全規則）</div>'; });
+    () => { const el = document.getElementById('fabHead'); if (el) el.innerHTML = '<div class="dr-hint">無法讀取FMX Issue Ticket（需更新資料庫安全規則）</div>'; });
 }
 
 // 依案場統計（總覽、週報共用邏輯）
@@ -74,7 +74,7 @@ export function renderFabPanel() {
   const uniq = f => [...new Set(all.map(f).filter(Boolean))].sort();
   opts('fabFSite', uniq(x => x.site || x.p), '全部案場'); opts('fabFSt', uniq(x => x.st), '全部狀態'); opts('fabFA', uniq(x => x.a), '全部負責人');
   const list = sortItems(all.filter(x => (F.closed || !x.c) && (!F.site || (x.site || x.p) === F.site) && (!F.st || x.st === F.st) && (!F.a || x.a === F.a) && (!F.gbg || (!x.c && x.ball === 'gbg'))));
-  out.innerHTML = list.length ? list.map(card).join('') : `<div class="empty-state"><div class="icon">🎫</div>${all.length ? '沒有符合條件的工單' : '尚無原廠工單資料'}</div>`;
+  out.innerHTML = list.length ? list.map(card).join('') : `<div class="empty-state"><div class="icon">🎫</div>${all.length ? '沒有符合條件的工單' : '尚無FMX Issue Ticket資料'}</div>`;
 }
 
 export function bindFabPanel() {

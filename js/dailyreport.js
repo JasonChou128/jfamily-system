@@ -1349,14 +1349,14 @@ function dashAdmin(m) {
   ${fabDashCard()}
   ${isAdmin() ? workloadCard() : ''}`;
 }
-// ═════════════ v2.5 原廠工單摘要（總覽） ═════════════
+// ═════════════ v2.5 FMX Issue Ticket摘要（總覽） ═════════════
 function fabDashCard() {
   const f = fabData(), st = fabSiteStats(f.items);
   const need = Object.values(f.items || {}).filter(x => !x.c && x.ball === 'gbg').sort((a, b) => overdueDays(b) - overdueDays(a) || (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 5);
   return `<div class="dd-row">
-    <div class="card dd-wide"><div class="card-title"><span>原廠工單：等 GBG 回覆</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">前往原廠工單</button></div>
+    <div class="card dd-wide"><div class="card-title"><span>FMX Issue Ticket：等 GBG 回覆</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">前往 FMX Issue Ticket</button></div>
       ${need.length ? need.map(x => `<div class="fb-mini">${ballDot(x)}<a href="${linkOf(x)}" target="_blank" rel="noopener noreferrer">#${esc(x.id)}</a><span class="fb-site">${esc(x.site || x.p)}</span><span class="fb-mini-t">${esc(String(x.s || '').trim())}</span><span class="dr-hint">${esc(x.a)}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</span></div>`).join('') : '<div class="dr-hint">目前沒有等 GBG 回覆的工單</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>原廠工單（依案場）</span><span class="dr-hint">${f.meta && f.meta.at ? '同步 ' + esc(fmtTime(f.meta.at)) : '尚未同步'}</span></div>
+    <div class="card dd-narrow"><div class="card-title"><span>FMX Issue Ticket（依案場）</span><span class="dr-hint">${f.meta && f.meta.at ? '同步 ' + esc(fmtTime(f.meta.at)) : '尚未同步'}</span></div>
       ${st.length ? `<table class="data-table dd-table"><thead><tr><th>案場</th><th class="r">開啟</th><th class="r">🔵</th><th class="r">🔴</th><th class="r">逾期</th></tr></thead><tbody>${st.map(o => `<tr><td>${esc(o.site)}</td><td class="r">${o.open}</td><td class="r">${o.gbg}</td><td class="r">${o.fab}</td><td class="r ${o.over ? 'red' : ''}">${o.over || ''}</td></tr>`).join('')}</tbody></table>` : '<div class="dr-hint">尚無資料</div>'}</div>
   </div>`;
 }
@@ -1418,8 +1418,8 @@ function dashEng(m) {
   <div class="dd-row">
     <div class="card dd-wide"><div class="card-title"><span>最近的日報</span></div>
       ${recent.length ? recent.map(r => `<div class="dd-rep-row"><span class="dd-rd">${esc(r.date.slice(5).replace('-', '/'))}</span><div class="dd-main"><div class="dd-t">${esc(custName(r))}／${esc(siteName(r))}</div><div class="dd-s">${esc((r.items || []).map((x, i) => `${i + 1}. ${x}`).join(' ') || '（無處理事項）')}</div></div><span class="dd-s">${round1(hoursOf(r))}h${r.overnight ? '・跨夜' : ''}${r.drive ? '・' + round1(kmOf(r.route)) + ' km' : ''}</span></div>`).join('') : '<div class="dr-hint">還沒有日報</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>指派給我的原廠工單</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">全部</button></div>
-      ${myFab.length ? myFab.slice(0, 6).map(x => `<a class="dd-tk" href="${linkOf(x)}" target="_blank" rel="noopener noreferrer"><div class="dd-t">${ballDot(x)} #${esc(x.id)}　${esc(String(x.s || '').trim())}</div><div class="dd-s ${x.ball === 'gbg' ? 'blue' : ''}">${esc(x.site || x.p)}・${esc(x.st)}${x.ball === 'gbg' ? '・等 GBG 回覆' : '・等原廠回覆'}${x.due ? '・到期 ' + esc(x.due.slice(5).replace('-', '/')) : ''}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</div></a>`).join('') : '<div class="dr-hint">沒有指派給你的原廠工單</div>'}</div>
+    <div class="card dd-narrow"><div class="card-title"><span>指派給我的 FMX Issue Ticket</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">全部</button></div>
+      ${myFab.length ? myFab.slice(0, 6).map(x => `<a class="dd-tk" href="${linkOf(x)}" target="_blank" rel="noopener noreferrer"><div class="dd-t">${ballDot(x)} #${esc(x.id)}　${esc(String(x.s || '').trim())}</div><div class="dd-s ${x.ball === 'gbg' ? 'blue' : ''}">${esc(x.site || x.p)}・${esc(x.st)}${x.ball === 'gbg' ? '・等 GBG 回覆' : '・等原廠回覆'}${x.due ? '・到期 ' + esc(x.due.slice(5).replace('-', '/')) : ''}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</div></a>`).join('') : '<div class="dr-hint">沒有指派給你的FMX Issue Ticket</div>'}</div>
   </div>`;
 }
 
