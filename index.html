@@ -74,8 +74,8 @@
     <div class="nav-tab jf-hidden" onclick="switchTab('attendance',this)">🕐 出勤打卡</div>
     <div class="nav-tab" onclick="switchTab('inventory',this)">📦 物料管理</div>
     <div class="nav-tab jf-hidden" onclick="switchTab('calendar',this)">📅 行事曆</div>
-    <div class="nav-tab" onclick="switchTab('tickets',this)">🎫 Issue Ticket</div>
-    <div class="nav-tab" id="adminTab" onclick="switchTab('admin',this)" style="display:none">⚙️ 管理</div>
+    <div class="nav-tab" data-tab="tickets" onclick="switchTab('tickets',this)">🎫 原廠工單</div>
+    <div class="nav-tab" id="adminTab" data-tab="admin" onclick="switchTab('admin',this)" style="display:none">⚙️ 管理</div>
   </div>
 
   <div class="content">
@@ -83,13 +83,14 @@
     <!-- DASHBOARD -->
     <div class="panel active" id="panel-dashboard">
       <div id="drDash"></div>
-      <div class="dash-grid">
+      <!-- v2.5：舊版票單統計已由「原廠工單」取代，保留程式碼但隱藏 -->
+      <div class="dash-grid jf-hidden">
         <div class="stat-card gold jf-hidden"><div class="stat-val" id="stat-present">0</div><div class="stat-label">今日出勤</div></div>
         <div class="stat-card red"><div class="stat-val" id="stat-tickets-open">0</div><div class="stat-label">待處理票單</div></div>
         <div class="stat-card blue"><div class="stat-val" id="stat-tickets-progress">0</div><div class="stat-label">進行中票單</div></div>
         <div class="stat-card green"><div class="stat-val" id="stat-inv-ok">0</div><div class="stat-label">庫存充足</div></div>
       </div>
-      <div class="card"><div class="card-title"><span>🎫 最新票單</span></div><div id="dash-recent-tickets"><div class="empty-state"><div class="icon">⏳</div>載入中...</div></div></div>
+      <div class="card jf-hidden"><div class="card-title"><span>🎫 最新票單</span></div><div id="dash-recent-tickets"><div class="empty-state"><div class="icon">⏳</div>載入中...</div></div></div>
       <div class="card jf-hidden"><div class="card-title"><span>🕐 今日出勤</span></div>
         <table class="data-table"><thead><tr><th>成員</th><th>上班</th><th>下班</th><th>狀態</th></tr></thead><tbody id="dash-attendance"></tbody></table>
       </div>
@@ -198,6 +199,23 @@
 
     <!-- TICKETS -->
     <div class="panel" id="panel-tickets">
+      <!-- v2.5：原廠工單（Fabmatics Redmine，24 小時 PC 每天同步 4 次，只讀） -->
+      <div class="card">
+        <div class="card-title"><span>🎫 原廠工單（Fabmatics）</span><a class="btn btn-ghost btn-sm" href="https://redmine.fabmatics.com/issues?set_filter=1&amp;status_id=o" target="_blank" rel="noopener noreferrer">開啟 Redmine</a></div>
+        <div id="fabHead"><div class="empty-state"><div class="icon">⏳</div>載入中...</div></div>
+        <div class="fb-filters">
+          <select class="dr-in" id="fabFSite"></select>
+          <select class="dr-in" id="fabFSt"></select>
+          <select class="dr-in" id="fabFA"></select>
+          <label class="dr-check"><input type="checkbox" id="fabFGbg"> 只看等 GBG 回覆</label>
+          <label class="dr-check"><input type="checkbox" id="fabFClosed"> 顯示近 30 天結案</label>
+        </div>
+        <div class="fb-legend"><span><span class="fb-dot gbg"></span>等 GBG 回覆（最後留言為原廠）</span><span><span class="fb-dot wait-fab"></span>等原廠回覆（最後留言為 GBG）</span><span><span class="fb-over">逾期 N 天</span>超過到期日</span></div>
+      </div>
+      <div id="fabList"></div>
+      <p class="dr-hint" style="margin:8px 4px 0">本頁只顯示資料。要回覆或修改工單，請點工單號碼到 Redmine，用自己的帳號登入操作。</p>
+      <!-- 舊版內部票單（v2.5 起隱藏，資料保留） -->
+      <div class="jf-hidden">
       <div class="ticket-filters">
         <button class="filter-btn active" onclick="filterTickets('all',this)">全部</button>
         <button class="filter-btn" onclick="filterTickets('pending',this)">待處理</button>
@@ -205,16 +223,18 @@
         <button class="filter-btn" onclick="filterTickets('done',this)">已完成</button>
       </div>
       <div id="ticketList"></div>
+      </div>
     </div>
 
     <!-- ADMIN -->
     <div class="panel" id="panel-admin">
-      <div class="card">
-        <div class="card-title"><span>👥 帳號管理</span></div>
-        <table class="data-table"><thead><tr><th>姓名</th><th>Email</th><th>權限</th><th>操作</th></tr></thead><tbody id="userList"></tbody></table>
+      <div class="card" id="cardAccounts" hidden>
+        <div class="card-title"><span>👥 帳號管理與權限</span></div>
+        <p class="dr-hint" style="margin-bottom:12px">等級：1 工程師（只看自己）、2 助理（看全員、匯出、請假與停班管理）、3 副管理（再加客戶／案場／產品主檔）、4 主管（再加成員設定、系統設定、帳號、人力負荷）。「要填日報」未勾選者不列入應回報、未填提醒、週報出勤表與人力負荷。</p>
+        <div style="overflow-x:auto"><table class="data-table"><thead><tr><th>姓名</th><th>Email</th><th>等級</th><th>要填日報</th><th>庫存管理</th><th>操作</th></tr></thead><tbody id="userList"></tbody></table></div>
       </div>
       <div id="drAdminHost"></div>
-      <div class="card">
+      <div class="card" id="cardHolidays" hidden>
         <div class="card-title"><span>📅 國定假日管理</span></div>
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">依據行政院人事行政總處官方公告管理台灣國定假日，每年更新一次</p>
         <div style="display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap">
@@ -233,7 +253,7 @@
         </div>
         <div id="holiday-list"></div>
       </div>
-      <div class="card">
+      <div class="card" id="cardExport" hidden>
         <div class="card-title"><span>📊 匯出報表</span></div>
         <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px">產生今日系統資料報表，可複製後貼給 AI 分析</p>
         <button class="btn btn-primary" onclick="generateReport()" style="margin-bottom:16px">📊 產生今日報表</button>
@@ -250,7 +270,8 @@
   </div>
 </div>
 
-<button class="fab" id="fab" onclick="onFab()">＋</button>
+<!-- v2.5：右下角「＋」暫時隱藏（ENABLE_FAB），程式保留 -->
+<button class="fab" id="fab" onclick="onFab()" style="display:none">＋</button>
 
 <!-- PROFILE MODAL -->
 <div class="modal-overlay" id="profileModal">
@@ -452,7 +473,9 @@ import { renderAttPunch, renderAttLog, doPunch as _dp, doFieldPunch as _dfp, sub
 import { renderInventory, adjustInv as _ai, editInv as _ei, deleteInv as _di, openInvModal as _oim, saveInv as _si } from './js/inventory.js';
 import { changeMonth as _cm, renderCalendar, openEventModal as _oem, saveEvent as _se, deleteEvent as _de, togglePicker as _tp, changePickerYear as _cpy, selectMonth as _sm, goToday as _gt, listenHolidays } from './js/calendar.js';
 import { filterTickets as _ft, renderTickets, openTicketDetail as _otd, advanceTicket as _at, deleteTicket as _dtk, openTicketModal as _otm, saveTicket as _stk, addComment as _ac, linkTicketToCalendar as _ltc, openEditTicket as _oet, saveEditTicket as _set } from './js/tickets.js';
-import { renderUserList, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr, initHolidayAdmin, renderHolidayAdmin, loadPresetHolidays as _lph, addManualHoliday as _amh, deleteHoliday as _dh } from './js/admin.js';
+import { tierOf, canViewAll, canInv, isBoss } from './js/perm.js';
+import { startFab, bindFabPanel } from './js/fabtickets.js';
+import { renderUserList, saveTier as _stier, toggleEditUser as _teu, saveUserEdit as _sue, toggleAdmin as _ta, deleteUser as _du, generateReport as _gr, initHolidayAdmin, renderHolidayAdmin, loadPresetHolidays as _lph, addManualHoliday as _amh, deleteHoliday as _dh } from './js/admin.js';
 
 let currentUser = null;
 let tickets = {}, inventory = {}, events = {}, attendance = {}, users = {};
@@ -537,6 +560,7 @@ window.saveEditTicket = id => _set(id, currentUser, tickets);
 window.toggleEditUser = uid => _teu(uid);
 window.saveUserEdit = uid => _sue(uid);
 window.toggleAdmin = (uid, role) => _ta(uid, role);
+window.saveTier = uid => _stier(uid, currentUser, users);
 window.deleteUser = uid => _du(uid);
 window.loadPresetHolidays = () => _lph();
 window.addManualHoliday = () => _amh();
@@ -555,22 +579,33 @@ window.copyReport = () => {
 window.onFab = () => {
   if (currentTab === 'report' || currentTab === 'fuel') drNewReport();
   else if (currentTab === 'tickets' || currentTab === 'dashboard') window.openTicketModal();
-  else if (currentTab === 'inventory' && currentUser?.role === 'admin') window.openInvModal();
+  else if (currentTab === 'inventory' && canInv(currentUser)) window.openInvModal();
   else if (currentTab === 'calendar') window.openEventModal();
   else if (currentTab === 'attendance') window.doPunch();
   else window.openTicketModal();
 };
 
+// v2.5：右下角「＋」暫時不用；改為 true 即可恢復
+const ENABLE_FAB = false;
+// v2.5：依權限等級顯示頁籤與管理卡片
+function applyGates(user) {
+  const av = ['🔧', '🔧', '📋', '🛡️', '👑'][tierOf(user)] || '🔧';
+  document.getElementById('topAvatar').textContent = av;
+  document.getElementById('profileAvatarBig').textContent = av;
+  document.getElementById('adminTab').style.display = canViewAll(user) ? '' : 'none';
+  document.getElementById('addInvBtn').style.display = canInv(user) ? '' : 'none';
+  document.getElementById('cardAccounts').hidden = !isBoss(user);
+  document.getElementById('cardHolidays').hidden = !isBoss(user);
+  document.getElementById('cardExport').hidden = !isBoss(user);
+}
 function onLoginSuccess(user) {
   currentUser = user;
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('app').style.display = 'flex';
-  document.getElementById('fab').style.display = 'flex';
+  document.getElementById('fab').style.display = ENABLE_FAB ? 'flex' : 'none';
   document.getElementById('topUsername').textContent = user.name || user.email;
-  document.getElementById('topAvatar').textContent = user.role === 'admin' ? '👑' : '🔧';
-  document.getElementById('profileAvatarBig').textContent = user.role === 'admin' ? '👑' : '🔧';
-  document.getElementById('adminTab').style.display = user.role === 'admin' ? '' : 'none';
-  document.getElementById('addInvBtn').style.display = user.role === 'admin' ? '' : 'none';
+  applyGates(user);
+  bindFabPanel();
   // Show admin attendance controls
   if (user.role === 'admin') {
     document.getElementById('attMemberSel').style.display = '';
@@ -608,8 +643,10 @@ function startListeners() {
     renderAttLog(currentUser, attendance, selUid);
     renderDashboard(currentUser, tickets, inventory, attendance, users);
   });
+  startFab();
   onValue(ref(db, 'users'), s => {
     users = s.val() || {};
+    if (users[currentUser.uid]) { currentUser = { ...currentUser, ...users[currentUser.uid] }; applyGates(currentUser); renderInventory(currentUser, inventory); }
     renderUserList(currentUser, users);
     drSetUsers(users);
     // Update attendance member selector for admin
@@ -624,7 +661,7 @@ function startListeners() {
   });
   if (ENABLE_ATT_CAL) listenHolidays();
   // v2.0：國定假日用於日報未填提醒與每日彙整，管理頁恢復顯示
-  if (currentUser.role === 'admin') initHolidayAdmin();
+  if (isBoss(currentUser)) initHolidayAdmin();
 }
 
 // ── INIT（v1.6：由 Firebase Authentication 判斷登入狀態）──

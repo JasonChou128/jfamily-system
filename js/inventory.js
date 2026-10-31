@@ -1,11 +1,12 @@
 import { db } from './config.js';
+import { canInv } from './perm.js';
 import { ref, set, push, remove, update } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 let editingInvId = null;
 
 export function renderInventory(currentUser, inventory) {
   if (!currentUser) return;
-  const isAdmin = currentUser.role === 'admin';
+  const isAdmin = canInv(currentUser);   // v2.5：主管或有「庫存管理」附加權限者
   document.getElementById('invGrid').innerHTML = Object.entries(inventory).length === 0
     ? '<div class="empty-state" style="grid-column:1/-1"><div class="icon">📦</div>尚無物料</div>'
     : Object.entries(inventory).map(([id, i]) => {

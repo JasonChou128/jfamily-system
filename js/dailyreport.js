@@ -2,6 +2,8 @@
 // 資料節點：master/{customers,sites,products}、reports/{YYYY-MM}/{id}、settings、exportLog
 import { db, today } from './config.js';
 import { buildWeekly } from './weekly-builder.js';
+import { tierOf, needsReport, canViewAll, canMaster, isBoss } from './perm.js';
+import { onFab, fabData, fabSiteStats, isMine, overdueDays, linkOf, ballDot, fmtTime } from './fabtickets.js';
 import { ref, set, push, update, remove, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const DEFAULTS = {
@@ -36,7 +38,9 @@ let contactAuto = true, prodAuto = true;
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const ym = d => d.slice(0, 7);
-const isAdmin = () => me && me.role === 'admin';
+const isAdmin = () => isBoss(me);          // 4 主管：成員設定、系統設定、人力負荷
+const isMgr = () => canViewAll(me);         // 2 助理以上：看全員、匯出、請假／停班管理
+const isMasterMgr = () => canMaster(me);    // 3 副管理以上：客戶／案場／產品主檔
 const rate = () => Number(settings.rate) || DEFAULTS.rate;
 const offices = () => ({ ...DEFAULTS.offices, ...(settings.offices || {}) });
 const userOffice = uid => (users[uid] && users[uid].office) || (me && uid === me.uid && me.office) || 'tf';
@@ -68,6 +72,7 @@ const closureFor = (uid, s0) => { const c = closures[s0]; return c && (c.scope =
 const isWorkdayFor = (uid, s0) => isWorkday(s0) && !closureFor(uid, s0);
 const leaveOf = (uid, s0) => Object.values(leaves).find(l => l.uid === uid && l.from <= s0 && s0 <= l.to);
 const members = () => Object.entries(users).filter(([, u]) => u.role === 'admin' || u.role === 'eng');
+const reporters = () => members().filter(([, u]) => needsReport(u));   // v2.5：需填日報者才列入回報、出勤統計
 // ── 外勤／內勤 ──
 const isOfficeR = r => r && r.kind === 'office';
 const custName = r => isOfficeR(r) ? '內勤' : nm('customers', r.cust);
@@ -105,6 +110,8 @@ export function initDailyReport(currentUser) {
   if (+today().slice(8) <= 5) watchMonth(ym(addDays(today().slice(0, 8) + '01', -1)));
   { const w = ym(addDays(today(), -7)); watchMonth(w); }
   watchMonth(ym(today()));
+  if (isAdmin()) watchMonth(ym(addDays(today().slice(0, 8) + '01', -1)));   // 人力負荷可看上月
+  onFab(() => renderDash());
   resetForm();
 }
 
@@ -113,7 +120,15 @@ export function setUsers(u) {
   if (me && users[me.uid]) me = { ...me, ...users[me.uid] };
   if (route && !editing && !route.stops.length) { route.origin = userOrigin(me.uid); if ($('drDrive') && $('drDrive').checked) renderRoute(); }
   fillUserFilters(); renderMembers(); renderList(); renderFuel(); renderExpense(); renderTrack(); renderLeave(); renderDash(); renderClosures();
-  if ($('drWeeklyCard')) $('drWeeklyCard').hidden = !isAdmin();
+  if ($('drWeeklyCard')) $('drWeeklyCard').hidden = !isMgr();
+  applyAdminCards();
+}
+
+// v2.5：管理頁卡片依等級顯示（停班：2 級以上；主檔：3 級以上；成員設定：4 級）
+function applyAdminCards() {
+  const show = (id, ok) => { const el = $(id); if (el) el.hidden = !ok; };
+  show('drCardClosure', isMgr()); show('drCardMaster', isMasterMgr()); show('drCardMembers', isAdmin());
+  renderMaster(); renderMembers(); renderClosures();
 }
 
 export function newReport() { resetForm(); $('drForm').scrollIntoView({ behavior: 'smooth', block: 'start' }); }
@@ -310,7 +325,7 @@ function buildPanels() {
 
   const adminHost = $('drAdminHost');
   if (adminHost) adminHost.innerHTML = `
-  <div class="card">
+  <div class="card" id="drCardClosure">
     <div class="card-title"><span>🌀 公司停班登記</span></div>
     <p class="dr-hint" style="margin-bottom:12px">颱風假等公司停班日在此登記。登記範圍內的成員不列入未回報、不提醒補填；當天仍有出勤者照常填日報。</p>
     <div class="dr-grid">
@@ -321,12 +336,12 @@ function buildPanels() {
     <button type="button" class="btn btn-primary btn-sm" id="drClosureAdd">登記停班</button>
     <div id="drClosureList" style="margin-top:12px"></div>
   </div>` + `
-  <div class="card">
+  <div class="card" id="drCardMaster" hidden>
     <div class="card-title"><span>🏢 客戶／案場／產品</span></div>
     <p class="dr-hint" style="margin-bottom:12px">所有人都可以在日報中新增；只有管理員可以停用或刪除。停用後下拉選單不再出現、清單預設隱藏，舊日報保留原名稱。要刪除須先停用，且沒有任何日報使用才能刪除。</p>
     <div class="dr-master"><div><h4>客戶</h4><ul id="drMCust"></ul></div><div><h4>案場</h4><ul id="drMSite"></ul></div><div><h4>產品</h4><ul id="drMProd"></ul></div></div>
   </div>
-  <div class="card">
+  <div class="card" id="drCardMembers" hidden>
     <div class="card-title"><span>👤 日報成員設定</span></div>
     <p class="dr-hint" style="margin-bottom:12px">中文姓名印在油資報表的申請人欄；所屬辦公室是路線起點的預設值；公司日報表填表人是開啟公司 Google 表單時自動選取的名字。</p>
     <div class="dr-gnames">
@@ -392,12 +407,12 @@ function fillUserFilters() {
   ['drListUser', 'drFuelUser', 'drExpUser', 'drTrackUser'].forEach(id => {
     const sel = $(id); if (!sel || !me) return;
     const cur = sel.value;
-    const list = isAdmin() ? Object.keys(users) : [me.uid];
-    const all = (id === 'drListUser' || id === 'drExpUser' || id === 'drTrackUser') && isAdmin() ? '<option value="">全部人員</option>' : '';
+    const list = isMgr() ? Object.keys(users) : [me.uid];
+    const all = (id === 'drListUser' || id === 'drExpUser' || id === 'drTrackUser') && isMgr() ? '<option value="">全部人員</option>' : '';
     sel.innerHTML = all + list.filter(uid => users[uid] || uid === me.uid)
       .map(uid => `<option value="${uid}">${esc(uid === me.uid ? me.name : userName(uid))}</option>`).join('');
     if (cur !== undefined && [...sel.options].some(o => o.value === cur)) sel.value = cur;
-    else sel.value = (id === 'drListUser' || id === 'drExpUser' || id === 'drTrackUser') && isAdmin() ? '' : me.uid;
+    else sel.value = (id === 'drListUser' || id === 'drExpUser' || id === 'drTrackUser') && isMgr() ? '' : me.uid;
   });
 }
 
@@ -869,7 +884,7 @@ async function syncTracking(rid, month, rec) {
   if (Object.keys(ups).length) await update(ref(db, 'tracking'), ups);
 }
 const daysSince = d => Math.max(0, Math.floor((new Date(today()) - new Date(d)) / 86400000));
-const canEdit = t => isAdmin() || t.uid === me.uid;
+const canEdit = t => isMgr() || t.uid === me.uid;
 async function setClosed(key, close) {
   const t = tracking[key]; if (!t || !canEdit(t)) return;
   let note = '';
@@ -899,7 +914,7 @@ function renderSiteOpen() {
 }
 function renderTrack() {
   const out = $('drTrackOut'); if (!out || !me) return;
-  const u = isAdmin() ? $('drTrackUser').value : me.uid, mode = $('drTrackMode').value;
+  const u = isMgr() ? $('drTrackUser').value : me.uid, mode = $('drTrackMode').value;
   let list = Object.entries(tracking).filter(([, t]) => (!u || t.uid === u) && (mode === 'open' ? !t.closedAt : !!t.closedAt));
   const openAll = Object.values(tracking).filter(t => !t.closedAt && (!u || t.uid === u));
   const overdue = openAll.filter(t => t.due && t.due < today()).length, aged = openAll.filter(t => daysSince(t.date) > 7).length;
@@ -928,20 +943,20 @@ function renderLeave() {
     const cur = sel.value;
     sel.innerHTML = members().map(([uid, u]) => `<option value="${uid}">${esc(u.name)}</option>`).join('');
     sel.value = cur && users[cur] ? cur : me.uid;
-    $('drLeaveUserBox').hidden = !isAdmin();
+    $('drLeaveUserBox').hidden = !isMgr();
   }
   const since = addDays(today(), -60);
-  const list = Object.entries(leaves).filter(([, l]) => (isAdmin() || l.uid === me.uid) && l.to >= since).sort((a, b) => b[1].from.localeCompare(a[1].from));
+  const list = Object.entries(leaves).filter(([, l]) => (isMgr() || l.uid === me.uid) && l.to >= since).sort((a, b) => b[1].from.localeCompare(a[1].from));
   if (!list.length) { box.innerHTML = '<div class="dr-hint">近期沒有休假登記</div>'; return; }
   box.innerHTML = list.map(([k, l]) => {
     let n = 0; for (let d = l.from; d <= l.to && n < 400; d = addDays(d, 1)) if (isWorkday(d)) n++;
-    const can = isAdmin() || l.uid === me.uid;
+    const can = isMgr() || l.uid === me.uid;
     return `<div class="dr-leave-row"><span><b>${esc(userName(l.uid))}</b>　${esc(mdw(l.from))}${l.to !== l.from ? ' ～ ' + esc(mdw(l.to)) : ''}<span class="dr-hint">　工作日 ${n} 天${l.note ? '・' + esc(l.note) : ''}</span></span>${can ? `<button type="button" class="btn btn-ghost btn-sm" data-leave-del="${k}">刪除</button>` : ''}</div>`;
   }).join('');
 }
 async function addLeave() {
   const from = $('drLeaveFrom').value, to = $('drLeaveTo').value || from;
-  const uid = isAdmin() ? ($('drLeaveUser').value || me.uid) : me.uid;
+  const uid = isMgr() ? ($('drLeaveUser').value || me.uid) : me.uid;
   if (!from) { toast('請選擇起始日'); return; }
   if (from > to) { toast('起始日不能晚於結束日'); return; }
   const overlap = Object.values(leaves).find(l => l.uid === uid && !(to < l.from || from > l.to));
@@ -964,7 +979,7 @@ function renderList() {
   const out = $('drList'); if (!out || !me) return;
   const m = $('drListMonth').value, u = $('drListUser').value;
   if (!monthData[m]) { out.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
-  const rs = Object.entries(monthData[m]).filter(([, r]) => isAdmin() ? (!u || r.uid === u) : r.uid === me.uid)
+  const rs = Object.entries(monthData[m]).filter(([, r]) => isMgr() ? (!u || r.uid === u) : r.uid === me.uid)
     .sort((a, b) => b[1].date.localeCompare(a[1].date) || (b[1].start || '').localeCompare(a[1].start || ''));
   if (!rs.length) { out.innerHTML = '<div class="empty-state"><div class="icon">📝</div>這個月份還沒有日報</div>'; return; }
   out.innerHTML = rs.map(([id, r]) => {
@@ -976,7 +991,7 @@ function renderList() {
       <div class="dr-actions">
         ${mine ? `<button class="btn btn-ghost btn-sm" data-edit="${m}|${id}">修改</button>` : ''}
         <button class="btn btn-ghost btn-sm" data-copy="${m}|${id}">LINE 文字／公司日報表</button>
-        ${!isOfficeR(r) && (mine || isAdmin()) ? `<button class="btn btn-ghost btn-sm" data-sr="${m}|${id}">Service Report</button>` : ''}
+        ${!isOfficeR(r) && (mine || isMgr()) ? `<button class="btn btn-ghost btn-sm" data-sr="${m}|${id}">Service Report</button>` : ''}
         ${mine ? `<button class="btn btn-danger btn-sm" data-rm="${m}|${id}">刪除</button>` : ''}
       </div></div>`;
   }).join('');
@@ -1114,7 +1129,7 @@ function expenseData(pd, uidFilter) {
 }
 function renderExpense() {
   const out = $('drExpOut'); if (!out || !me) return;
-  const pd = period('Exp'), u = isAdmin() ? $('drExpUser').value : me.uid;
+  const pd = period('Exp'), u = isMgr() ? $('drExpUser').value : me.uid;
   if (!pd.ok) { out.innerHTML = `<div class="empty-state"><div class="icon">📅</div>${esc(pd.err || '請選擇期間')}</div>`; return; }
   pd.months.forEach(watchMonth);
   if (pd.months.some(m => !monthData[m])) { out.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
@@ -1139,7 +1154,7 @@ function sheetName(s, used) {
   used.add(n); return n;
 }
 async function exportExpense() {
-  const pd = period('Exp'), u = isAdmin() ? $('drExpUser').value : me.uid;
+  const pd = period('Exp'), u = isMgr() ? $('drExpUser').value : me.uid;
   if (!pd.ok) { toast(pd.err || '請選擇期間'); return; }
   const ps = expenseData(pd, u);
   if (!ps.length) { toast('這個期間沒有可匯出的資料'); return; }
@@ -1202,7 +1217,8 @@ function remindStart() {
   return st;
 }
 function missingDays(uid) {
-  const out = [], t = today(), u = users[uid] || {};
+  const out = [], t = today(), u = users[uid] || (me && uid === me.uid ? me : {});
+  if (!needsReport(u)) return out;   // v2.5：不需填日報者（助理）不提醒
   let st = remindStart(); if (u.createdAt && u.createdAt > st) st = u.createdAt;
   for (let d = st, n = 0; d < t && n < 62; d = addDays(d, 1), n++) {
     if (!isWorkdayFor(uid, d) || leaveOf(uid, d) || !monthData[ym(d)]) continue;
@@ -1215,7 +1231,7 @@ const monthReports = m => Object.values(monthData[m] || {});
 function lastWorkday() { let d = addDays(today(), -1); for (let i = 0; i < 14 && !isWorkday(d); i++) d = addDays(d, -1); return d; }
 // ═════════════ 公司停班登記（管理員） ═════════════
 function renderClosures() {
-  const box = $('drClosureList'); if (!box || !isAdmin()) return;
+  const box = $('drClosureList'); if (!box || !isMgr()) return;
   if (!renderClosures.bound) {
     renderClosures.bound = true;
     $('drClosureAdd').onclick = async () => {
@@ -1263,7 +1279,7 @@ function renderDash() {
   const box = $('drDash'); if (!box || !me) return;
   const m = ym(today());
   if (!monthData[m]) { box.innerHTML = ''; return; }
-  box.innerHTML = isAdmin() ? dashAdmin(m) : dashEng(m);
+  box.innerHTML = isMgr() ? dashAdmin(m) : dashEng(m);
   if (!renderDash.bound) {
     renderDash.bound = true;
     box.addEventListener('click', e => {
@@ -1271,10 +1287,11 @@ function renderDash() {
       const c = e.target.closest('[data-close]'); if (c) { setClosed(c.dataset.close, true); return; }
       const g = e.target.closest('[data-go]'); if (g) window.switchTab(g.dataset.go, document.querySelector(`.nav-tab[data-tab="${g.dataset.go}"]`));
     });
+    box.addEventListener('change', e => { if (e.target.id === 'drWlMonth') { wlPrev = e.target.value === 'prev'; renderDash(); } });
   }
 }
 function dashAdmin(m) {
-  const t = today(), lw = lastWorkday(), mem = members();
+  const t = today(), lw = lastWorkday(), mem = reporters();
   const expected = mem.filter(([uid]) => !leaveOf(uid, lw) && !closureFor(uid, lw));
   const reported = expected.filter(([uid]) => reportsOf(uid, lw).length);
   const missing = expected.filter(([uid]) => !reportsOf(uid, lw).length).map(([, u]) => u.name);
@@ -1311,7 +1328,7 @@ function dashAdmin(m) {
   const maxC = custArr.length ? custArr[0][1] : 1;
   return `
   <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>總覽</h2></div><span class="dd-role">主管視角</span></div>
-  ${missStrip(me.uid, '您自己還有日報沒填')}
+  ${needsReport(me) ? missStrip(me.uid, '您自己還有日報沒填') : ''}
   <div class="dd-kpis">
     <div class="dd-kpi"><span>最近工作日（${esc(mdw(lw))}）回報</span><b>${reported.length}<small> / ${expected.length} 人</small></b><em class="${missing.length ? 'red' : 'green'}">${missing.length ? '未回報：' + esc(missing.join('、')) : '全員已回報'}</em></div>
     <div class="dd-kpi"><span>未結案待追蹤</span><b class="gold">${open.length}<small> 件</small></b><em class="${aged || over ? 'red' : ''}">超過 7 天 ${aged} 件・已逾期 ${over} 件</em></div>
@@ -1329,7 +1346,47 @@ function dashAdmin(m) {
     <div class="card dd-narrow"><div class="card-title"><span>本月人力分布（人天）</span></div>
       ${custArr.length ? custArr.map(([k, v]) => `<div class="dd-bar"><div class="dd-bar-h"><span>${esc(k)}</span><span>${v} 人天</span></div><div class="dd-bar-t"><div style="width:${Math.max(4, v / maxC * 100)}%"></div></div></div>`).join('') : '<div class="dr-hint">本月尚無資料</div>'}</div>
   </div>
-  <div class="dd-sub">工單與庫存</div>`;
+  ${fabDashCard()}
+  ${isAdmin() ? workloadCard() : ''}`;
+}
+// ═════════════ v2.5 原廠工單摘要（總覽） ═════════════
+function fabDashCard() {
+  const f = fabData(), st = fabSiteStats(f.items);
+  const need = Object.values(f.items || {}).filter(x => !x.c && x.ball === 'gbg').sort((a, b) => overdueDays(b) - overdueDays(a) || (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 5);
+  return `<div class="dd-row">
+    <div class="card dd-wide"><div class="card-title"><span>原廠工單：等 GBG 回覆</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">前往原廠工單</button></div>
+      ${need.length ? need.map(x => `<div class="fb-mini">${ballDot(x)}<a href="${linkOf(x)}" target="_blank" rel="noopener noreferrer">#${esc(x.id)}</a><span class="fb-site">${esc(x.site || x.p)}</span><span class="fb-mini-t">${esc(String(x.s || '').trim())}</span><span class="dr-hint">${esc(x.a)}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</span></div>`).join('') : '<div class="dr-hint">目前沒有等 GBG 回覆的工單</div>'}</div>
+    <div class="card dd-narrow"><div class="card-title"><span>原廠工單（依案場）</span><span class="dr-hint">${f.meta && f.meta.at ? '同步 ' + esc(fmtTime(f.meta.at)) : '尚未同步'}</span></div>
+      ${st.length ? `<table class="data-table dd-table"><thead><tr><th>案場</th><th class="r">開啟</th><th class="r">🔵</th><th class="r">🔴</th><th class="r">逾期</th></tr></thead><tbody>${st.map(o => `<tr><td>${esc(o.site)}</td><td class="r">${o.open}</td><td class="r">${o.gbg}</td><td class="r">${o.fab}</td><td class="r ${o.over ? 'red' : ''}">${o.over || ''}</td></tr>`).join('')}</tbody></table>` : '<div class="dr-hint">尚無資料</div>'}</div>
+  </div>`;
+}
+// ═════════════ v2.5 人力負荷（只限 4 級主管） ═════════════
+// 依日報工作時間估算（不含交通時間）；單日超過 6 小時扣 1 小時午休；工作日超過 8 小時、非工作日全部列為加班
+let wlPrev = false;
+function workloadCard() {
+  const m = wlPrev ? ym(addDays(today().slice(0, 8) + '01', -1)) : ym(today());
+  const mr = monthReports(m);
+  const rows = reporters().map(([uid, u]) => {
+    const byDay = {};
+    mr.filter(r => r.uid === uid).forEach(r => { const o = byDay[r.date] = byDay[r.date] || { h: 0, ovn: false, field: false, cust: new Set() }; o.h += hoursOf(r); if (r.overnight) o.ovn = true; if (!isOfficeR(r)) { o.field = true; o.cust.add(r.cust); } });
+    const days = Object.keys(byDay).sort();
+    let streak = 0, best = 0, prev = null, ot = 0;
+    days.forEach(d => { streak = prev && addDays(prev, 1) === d ? streak + 1 : 1; best = Math.max(best, streak); prev = d;
+      const h = byDay[d].h, w = h - (h > 6 ? 1 : 0); ot += isWorkdayFor(uid, d) ? Math.max(0, w - 8) : w; });
+    const long = days.filter(d => byDay[d].h > 12);
+    return { name: u.name, days: days.length, field: days.filter(d => byDay[d].field).length, long, best, ot: round1(ot),
+      ovn: days.filter(d => byDay[d].ovn).length, hol: days.filter(d => !isWorkdayFor(uid, d)).length, cust: new Set(days.flatMap(d => [...byDay[d].cust])).size };
+  }).sort((a, b) => b.ot - a.ot || b.days - a.days);
+  const otc = v => v > 46 ? 'wl-red' : v > 40 ? 'wl-yel' : '';
+  return `<div class="card"><div class="card-title"><span>人力負荷（${+m.slice(5)} 月）</span>
+    <select class="dr-in wl-sel" id="drWlMonth"><option value="cur" ${wlPrev ? '' : 'selected'}>本月</option><option value="prev" ${wlPrev ? 'selected' : ''}>上月</option></select></div>
+    <div style="overflow-x:auto"><table class="data-table dd-table"><thead><tr><th>成員</th><th class="r">出勤天數</th><th class="r">單日超過 12 小時</th><th class="r">最長連續出勤</th><th class="r">估算加班</th><th class="r">跨夜／假日</th><th class="r">服務客戶數</th></tr></thead><tbody>
+    ${rows.map(x => `<tr><td>${esc(x.name)}</td><td class="r">${x.days}<span class="dr-hint">（外勤 ${x.field}）</span></td>
+      <td class="r ${x.long.length ? 'wl-yel' : ''}" title="${esc(x.long.map(d => d.slice(5).replace('-', '/')).join('、'))}">${x.long.length ? `${x.long.length} 天<div class="dr-hint">${esc(x.long.map(d => +d.slice(8)).join('、'))} 日</div>` : '—'}</td>
+      <td class="r ${x.best > 6 ? 'wl-red' : ''}">${x.best ? x.best + ' 天' : '—'}</td>
+      <td class="r ${otc(x.ot)}">${x.ot} 小時</td><td class="r">${x.ovn} ／ ${x.hol}</td><td class="r">${x.cust}</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="dr-hint" style="margin-top:10px">依日報資料估算，以日報工作時間計（不含交通時間）。單日超過 6 小時扣 1 小時午休；工作日超過 8 小時、假日與停班日全部列為加班。估算加班超過 40 小時標黃、超過 46 小時標紅；連續出勤超過 6 天標紅。只列需要填日報的成員。</p></div>`;
 }
 function dashEng(m) {
   const t = today(), uid = me.uid, mr = monthReports(m).filter(r => r.uid === uid);
@@ -1346,8 +1403,7 @@ function dashEng(m) {
   const expSum = mr.reduce((a, r) => a + (r.exps || []).reduce((b, x) => b + (parseFloat(x.amt) || 0), 0), 0);
   const prev = ym(addDays(t.slice(0, 8) + '01', -1));
   const recent = [...monthReports(m), ...monthReports(prev)].filter(r => r.uid === uid).sort((a, b) => b.date.localeCompare(a.date) || (b.start || '').localeCompare(a.start || '')).slice(0, 3);
-  const myTickets = Object.entries(tickets).filter(([, x]) => x.assign && (x.assign === me.name || x.assign === me.cname) && x.status !== 'done');
-  const stLabel = { pending: '待處理', progress: '進行中' };
+  const myFab = Object.values(fabData().items || {}).filter(x => !x.c && isMine(x, me)).sort((a, b) => (a.ball === 'gbg' ? 0 : 1) - (b.ball === 'gbg' ? 0 : 1) || overdueDays(b) - overdueDays(a));
   return `
   <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>${esc(me.name)}，你好</h2></div><span class="dd-role blue">工程師視角</span></div>
   ${cta}
@@ -1362,10 +1418,9 @@ function dashEng(m) {
   <div class="dd-row">
     <div class="card dd-wide"><div class="card-title"><span>最近的日報</span></div>
       ${recent.length ? recent.map(r => `<div class="dd-rep-row"><span class="dd-rd">${esc(r.date.slice(5).replace('-', '/'))}</span><div class="dd-main"><div class="dd-t">${esc(custName(r))}／${esc(siteName(r))}</div><div class="dd-s">${esc((r.items || []).map((x, i) => `${i + 1}. ${x}`).join(' ') || '（無處理事項）')}</div></div><span class="dd-s">${round1(hoursOf(r))}h${r.overnight ? '・跨夜' : ''}${r.drive ? '・' + round1(kmOf(r.route)) + ' km' : ''}</span></div>`).join('') : '<div class="dr-hint">還沒有日報</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>指派給我的工單</span></div>
-      ${myTickets.length ? myTickets.slice(0, 5).map(([id, x]) => `<div class="dd-tk" onclick="window.openTicketDetail('${esc(id)}')"><div class="dd-t">${esc(x.title || id)}</div><div class="dd-s gold">${esc(stLabel[x.status] || x.status || '')}${x.due ? '・到期 ' + esc(String(x.due).slice(5).replace('-', '/')) : ''}</div></div>`).join('') : '<div class="dr-hint">沒有指派給你的工單</div>'}</div>
-  </div>
-  <div class="dd-sub">工單與庫存</div>`;
+    <div class="card dd-narrow"><div class="card-title"><span>指派給我的原廠工單</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">全部</button></div>
+      ${myFab.length ? myFab.slice(0, 6).map(x => `<a class="dd-tk" href="${linkOf(x)}" target="_blank" rel="noopener noreferrer"><div class="dd-t">${ballDot(x)} #${esc(x.id)}　${esc(String(x.s || '').trim())}</div><div class="dd-s ${x.ball === 'gbg' ? 'blue' : ''}">${esc(x.site || x.p)}・${esc(x.st)}${x.ball === 'gbg' ? '・等 GBG 回覆' : '・等原廠回覆'}${x.due ? '・到期 ' + esc(x.due.slice(5).replace('-', '/')) : ''}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</div></a>`).join('') : '<div class="dr-hint">沒有指派給你的原廠工單</div>'}</div>
+  </div>`;
 }
 
 // ═════════════ Service Report（客戶要求時產出） ═════════════
@@ -1537,7 +1592,8 @@ async function srBuild(d, again) {
 }
 function renderSRLog() {
   const box = $('srLogList'); if (!box || !me) return;
-  const list = Object.entries(srLog).filter(([, x]) => isAdmin() || x.by === me.uid || (x.rows || []).some(r => r.uid === me.uid)).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 20);
+  const list = Object.entries(srLog)
+    .filter(([, x]) => isMgr() || x.by === me.uid || (x.rows || []).some(r => r.uid === me.uid)).sort((a, b) => b[0].localeCompare(a[0])).slice(0, 20);
   box.innerHTML = list.length ? list.map(([k, x]) => `<div class="dr-leave-row"><span><b>${esc(k)}</b>　${esc(nm('customers', x.cust))}／${esc(nm('sites', x.site))}<span class="dr-hint">　${esc((x.eq || {}).tool || '')}　${esc((x.rows || []).map(r => r.name).filter((v, i, a) => a.indexOf(v) === i).join('、'))}</span></span><button type="button" class="btn btn-ghost btn-sm" data-sr-again="${esc(k)}">重新匯出</button></div>`).join('') : '<div class="dr-hint">尚未開立 Service Report</div>';
 }
 
@@ -1554,7 +1610,7 @@ async function exportWeekly() {
   let all;
   try { all = (await get(ref(db, 'reports'))).val() || {}; } catch (e) { toast('讀取日報失敗：' + e.message); return; }
   try { await loadExcelJS(); } catch (e) { toast(e.message); return; }
-  const { wb } = buildWeekly(ExcelJS, { ws, today: today(), all, tracking, master, users, leaves, closures, holidays, workdays, srLog, offices: offices() });
+  const { wb } = buildWeekly(ExcelJS, { ws, today: today(), all, tracking, master, users, leaves, closures, holidays, workdays, srLog, offices: offices(), fab: fabData() });
   const buf = await wb.xlsx.writeBuffer();
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
@@ -1565,7 +1621,7 @@ async function exportWeekly() {
 // ═════════════ 管理：主檔與成員 ═════════════
 let showOff = { customers: false, sites: false, products: false };
 function renderMaster() {
-  if (!$('drMCust') || !isAdmin()) return;
+  if (!$('drMCust') || !isMasterMgr()) return;
   const li = (coll, id, x, extra) => `<li class="${x.active === false ? 'off' : ''}"><span>${esc(x.name)}${extra ? `<span class="dr-hint">　${esc(extra)}</span>` : ''}${x.active === false ? '　<span class="dr-tag">已停用</span>' : ''}</span>
     <span style="display:flex;gap:4px;flex-shrink:0">${coll === 'sites' ? `<button class="btn btn-sm btn-ghost" data-addr="${id}">地址</button>` : ''}<button class="btn btn-sm ${x.active === false ? 'btn-ghost' : 'btn-danger'}" data-toggle="${coll}|${id}">${x.active === false ? '啟用' : '停用'}</button>${x.active === false ? `<button class="btn btn-sm btn-danger" data-mdel="${coll}|${id}">刪除</button>` : ''}</span></li>`;
   const sortN = o => Object.entries(o).sort((a, b) => a[1].name.localeCompare(b[1].name, 'zh-Hant'));
@@ -1584,16 +1640,16 @@ function renderMaster() {
       const so = e.target.closest('[data-showoff]');
       if (so) { showOff[so.dataset.showoff] = !showOff[so.dataset.showoff]; renderMaster(); return; }
       const md = e.target.closest('[data-mdel]');
-      if (md && isAdmin()) { await deleteMaster(...md.dataset.mdel.split('|')); return; }
+      if (md && isMasterMgr()) { await deleteMaster(...md.dataset.mdel.split('|')); return; }
       const ab = e.target.closest('[data-addr]');
-      if (ab && isAdmin()) {
+      if (ab && isMasterMgr()) {
         const x = master.sites[ab.dataset.addr];
         const v = prompt(`「${x.name}」的地址（可填門牌地址或 Google Plus Code，例如 VPM3+V5 萬丹村 南投縣名間鄉）`, x.addr || '');
         if (v === null) return;
         try { await update(ref(db, `master/sites/${ab.dataset.addr}`), { addr: v.trim() }); toast('地址已更新'); } catch (er) { toast('更新失敗：' + er.message); }
         return;
       }
-      const b = e.target.closest('[data-toggle]'); if (!b || !isAdmin()) return;
+      const b = e.target.closest('[data-toggle]'); if (!b || !isMasterMgr()) return;
       const [coll, id] = b.dataset.toggle.split('|'), x = master[coll][id];
       await update(ref(db, `master/${coll}/${id}`), { active: x.active === false });
     });

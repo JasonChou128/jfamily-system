@@ -1,6 +1,7 @@
 import { db } from './config.js';
 import { ref, remove, update, set, onValue } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 import { statusLabel } from './tickets.js';
+import { TIERS, tierOf, needsReport, isBoss } from './perm.js';
 
 // ── 台灣官方假日預設資料（依行政院人事行政總處公告）──
 const TW_HOLIDAYS_PRESET = {
@@ -58,29 +59,46 @@ const TW_HOLIDAYS_PRESET = {
   }
 };
 
-// ── USER MANAGEMENT ──
+// ── USER MANAGEMENT（v2.5：權限四級＋附加權限） ──
+const escA = s0 => String(s0 ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export function renderUserList(currentUser, users) {
-  if (!currentUser || currentUser.role !== 'admin') return;
-  document.getElementById('userList').innerHTML = Object.entries(users).map(([uid, u]) => `
+  if (!currentUser || !isBoss(currentUser)) return;
+  const self = uid => uid === currentUser.uid;
+  document.getElementById('userList').innerHTML = Object.entries(users).sort((a, b) => (a[1].role === 'pending' ? 0 : 1) - (b[1].role === 'pending' ? 0 : 1) || tierOf(b[1]) - tierOf(a[1]) || String(a[1].name).localeCompare(String(b[1].name))).map(([uid, u]) => {
+    const t = tierOf(u), pend = u.role === 'pending';
+    return `
     <tr>
       <td>
-        <span id="name-display-${uid}">${u.name}</span>
-        <input id="name-input-${uid}" value="${u.name}" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:13px;width:120px">
+        <span id="name-display-${uid}">${escA(u.name)}</span>
+        <input id="name-input-${uid}" value="${escA(u.name)}" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:13px;width:120px">
       </td>
-      <td style="font-size:12px;color:var(--text-muted)">
-        <span id="email-display-${uid}">${u.email}</span>
-        <input id="email-input-${uid}" value="${u.email}" style="display:none;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:4px 8px;color:var(--text);font-size:13px;width:160px">
-      </td>
-      <td><span class="role-badge ${u.role}">${u.role === 'admin' ? '管理者' : u.role === 'pending' ? '待核准' : '工程師'}</span></td>
-      <td style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
-        <button id="edit-btn-${uid}" class="btn btn-ghost btn-sm" onclick="window.toggleEditUser('${uid}')">編輯</button>
-        <button id="save-btn-${uid}" class="btn btn-primary btn-sm" style="display:none" onclick="window.saveUserEdit('${uid}')">儲存</button>
-        ${u.role === 'pending'
+      <td style="font-size:12px;color:var(--text-muted)">${escA(u.email)}</td>
+      <td>${pend ? '<span class="role-badge pending">待核准</span>' : `<select class="dr-in" id="tier-${uid}" ${self(uid) ? 'disabled title="不能變更自己的等級"' : ''}>${Object.entries(TIERS).map(([k, v]) => `<option value="${k}" ${+k === t ? 'selected' : ''}>${k} ${v}</option>`).join('')}</select>`}</td>
+      <td style="text-align:center">${pend ? '' : `<input type="checkbox" id="rep-${uid}" ${needsReport(u) ? 'checked' : ''}>`}</td>
+      <td style="text-align:center">${pend ? '' : `<input type="checkbox" id="inv-${uid}" ${u.inv ? 'checked' : ''}>`}</td>
+      <td><div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <button id="edit-btn-${uid}" class="btn btn-ghost btn-sm" onclick="window.toggleEditUser('${uid}')">改名</button>
+        <button id="save-btn-${uid}" class="btn btn-primary btn-sm" style="display:none" onclick="window.saveUserEdit('${uid}')">儲存姓名</button>
+        ${pend
           ? `<button class="btn btn-primary btn-sm" onclick="window.toggleAdmin('${uid}','eng')">核准</button>`
-          : `<button class="btn btn-ghost btn-sm" onclick="window.toggleAdmin('${uid}','${u.role === 'admin' ? 'eng' : 'admin'}')">${u.role === 'admin' ? '降為工程師' : '升為管理者'}</button>`}
-        ${u.email !== currentUser.email ? `<button class="btn btn-danger btn-sm" onclick="window.deleteUser('${uid}')">刪除</button>` : ''}
-      </td>
-    </tr>`).join('');
+          : `<button class="btn btn-primary btn-sm" onclick="window.saveTier('${uid}')">儲存權限</button>`}
+        ${!self(uid) ? `<button class="btn btn-danger btn-sm" onclick="window.deleteUser('${uid}')">刪除</button>` : ''}
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+// 儲存等級與附加權限：4 級對應 role 'admin'，其餘為 'eng'（安全規則依 role 與 tier 判斷）
+export async function saveTier(uid, currentUser, users) {
+  if (!isBoss(currentUser)) return;
+  const u = users[uid]; if (!u) return;
+  const tier = uid === currentUser.uid ? tierOf(u) : +document.getElementById('tier-' + uid).value;
+  const report = document.getElementById('rep-' + uid).checked, inv = document.getElementById('inv-' + uid).checked;
+  if (uid !== currentUser.uid && tierOf(u) === 4 && tier < 4 && !confirm(`確定將「${u.name}」由主管降為 ${tier} ${TIERS[tier]}？`)) { renderUserList(currentUser, users); return; }
+  try {
+    await update(ref(db, `users/${uid}`), { tier, role: tier === 4 ? 'admin' : 'eng', report, inv });
+    alert(`已儲存：${u.name}　${tier} ${TIERS[tier]}${report ? '' : '・不填日報'}${inv ? '・庫存管理' : ''}`);
+  } catch (e) { alert('儲存失敗：' + e.message); }
 }
 
 export function toggleEditUser(uid) {
@@ -102,7 +120,8 @@ export async function saveUserEdit(uid) {
 }
 
 export async function toggleAdmin(uid, role) {
-  await update(ref(db, `users/${uid}`), { role });
+  // v2.5：只用於核准新帳號（預設 1 工程師、要填日報）
+  await update(ref(db, `users/${uid}`), role === 'eng' ? { role, tier: 1, report: true } : { role });
 }
 
 export async function deleteUser(uid) {

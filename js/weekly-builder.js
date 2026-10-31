@@ -1,6 +1,7 @@
 // J Family 工作週報產生器（網頁與 24 小時 PC 共用，兩邊檔案內容須一致）
 // buildWeekly(ExcelJS, D) → { wb, summary }
-// D: { ws, today, all(reports), tracking, master, users, leaves, closures, holidays, workdays, srLog, offices }
+// D: { ws, today, all(reports), tracking, master, users, leaves, closures, holidays, workdays, srLog, offices, fab }
+// v2.5：出勤表只列需填日報的成員（助理不列）；新增「原廠工單」工作表（fab = fabTickets 節點）
 export function buildWeekly(ExcelJS, D) {
   const { ws, all, tracking, master, users, srLog } = D;
   const leaves = D.leaves || {}, closures = D.closures || {}, holidays = D.holidays || {}, workdays = D.workdays || {};
@@ -19,7 +20,9 @@ export function buildWeekly(ExcelJS, D) {
   const userOffice = uid => (users[uid] && users[uid].office) || 'tf';
   const leaveOf = (uid, s0) => Object.values(leaves).find(l => l.uid === uid && l.from <= s0 && s0 <= l.to);
   const closureFor = (uid, s0) => { const c = closures[s0]; return c && (c.scope === 'all' || c.scope === userOffice(uid) || c.scope === 'uid:' + uid) ? c : null; };
-  const members = () => Object.entries(users).filter(([, u]) => u.role === 'admin' || u.role === 'eng');
+  const tierOf = u => { const t = Number(u.tier); return t >= 1 && t <= 4 ? t : (u.role === 'admin' ? 4 : 1); };
+  const needsReport = u => (u.report !== undefined && u.report !== null) ? !!u.report : tierOf(u) !== 2;
+  const members = () => Object.entries(users).filter(([, u]) => (u.role === 'admin' || u.role === 'eng') && needsReport(u));
   const nm = (coll, id) => (master[coll] && master[coll][id] && master[coll][id].name) || '（已刪除）';
   const isOfficeR = r => r && r.kind === 'office';
   const custName = r => isOfficeR(r) ? '內勤' : nm('customers', r.cust);
@@ -81,6 +84,36 @@ export function buildWeekly(ExcelJS, D) {
   s1.getCell(`B${fr + 1}`).value = `列入條件：本週有到場，或仍有未結案事項的案場。期間 ${ws.replace(/-/g, '/')}～${we.slice(5).replace('-', '/')}。`;
   s1.getCell(`B${fr + 1}`).font = { ...F, size: 10, color: { argb: 'FF666666' } };
 
+  // ── 1b. 原廠工單（Fabmatics Redmine，依案場一行） ──
+  const fab = D.fab || {}, fItems = Object.values(fab.items || {});
+  const fsum = [];
+  if (fItems.length) {
+    const sf = wb.addWorksheet('原廠工單', { views: [{ state: 'frozen', ySplit: 1 }], pageSetup: { ...PS, orientation: 'portrait' } });
+    [20, 10, 14, 14, 10, 12, 12].forEach((w, i) => { sf.getColumn(i + 1).width = w; });
+    header(sf, ['案場', '開啟中', '等 GBG 回覆', '等原廠回覆', '已逾期', '本週新開', '本週結案']);
+    const asOf = D.today, inWk = iso => { if (!iso) return false; const d0 = dstr(new Date(iso)); return d0 >= ws && d0 <= we; };
+    const by = {};
+    fItems.forEach(it => {
+      const k = it.site || it.p || '其他', o = by[k] = by[k] || { site: k, open: 0, gbg: 0, fab: 0, over: 0, nw: 0, cl: 0 };
+      if (inWk(it.cr)) o.nw++;
+      if (it.c) { if (inWk(it.co)) o.cl++; return; }
+      o.open++; if (it.ball === 'gbg') o.gbg++; else o.fab++; if (it.due && it.due < asOf) o.over++;
+    });
+    const list = Object.values(by).filter(o => o.open || o.nw || o.cl).sort((a, b) => b.open - a.open);
+    const tot = list.reduce((a, o) => { ['open', 'gbg', 'fab', 'over', 'nw', 'cl'].forEach(k => { a[k] += o[k]; }); return a; }, { site: '合計', open: 0, gbg: 0, fab: 0, over: 0, nw: 0, cl: 0 });
+    [...list, tot].forEach((o, i) => {
+      const r = sf.getRow(i + 2), last = o === tot;
+      [o.site, o.open, o.gbg, o.fab, o.over, o.nw, o.cl].forEach((v, k) => cell(r.getCell(k + 1), v, { h: k ? 'center' : 'left', font: last ? { bold: true } : (k === 4 && v ? { bold: true, color: { argb: 'FFC0392B' } } : undefined), fill: last ? HF : (k === 4 && v ? RED : undefined) }));
+      r.height = 22;
+      if (!last && o.open) fsum.push(`${o.site}：開啟 ${o.open} 張｜等 GBG ${o.gbg} 張｜等原廠 ${o.fab} 張｜逾期 ${o.over} 張`);
+    });
+    const n0 = list.length + 4;
+    sf.getCell(`A${n0}`).value = `統計時間：資料同步於 ${fab.meta && fab.meta.at ? new Date(fab.meta.at).toLocaleString('zh-TW', { hour12: false }) : '—'}。等 GBG 回覆＝最後留言為原廠；等原廠回覆＝最後留言為 GBG。`;
+    sf.getCell(`A${n0}`).font = { ...F, size: 10, color: { argb: 'FF666666' } };
+    sf.getCell(`A${n0 + 1}`).value = '工單內容請至 https://redmine.fabmatics.com 以個人帳號登入查看。';
+    sf.getCell(`A${n0 + 1}`).font = { ...F, size: 10, color: { argb: 'FF666666' } };
+  }
+
   // ── 2. 行程（出勤表） ──
   const s2 = wb.addWorksheet('行程', { views: [{ state: 'frozen', xSplit: 1, ySplit: 1 }], pageSetup: PS });
   const mem = members().sort((a, b) => (a[1].name || '').localeCompare(b[1].name || '', 'zh-Hant'));
@@ -140,7 +173,7 @@ export function buildWeekly(ExcelJS, D) {
   });
   if (!histSites.length) cell(s3.getCell('A3'), '尚無服務紀錄');
 
-  const summary = { red: rows.filter(x => x.light === 'red').map(x => x.vals[0]), yellow: rows.filter(x => x.light === 'yellow').map(x => x.vals[0]), green: rows.filter(x => x.light === 'green').length, sites: rows.length, we, missing: [] };
+  const summary = { red: rows.filter(x => x.light === 'red').map(x => x.vals[0]), yellow: rows.filter(x => x.light === 'yellow').map(x => x.vals[0]), green: rows.filter(x => x.light === 'green').length, sites: rows.length, we, missing: [], fab: fsum };
   for (let i = 0; i < 7; i++) { const d = addDays(ws, i); if (!isWorkday(d) || d >= today()) continue; members().forEach(([uid, u]) => { if (!wk.some(x => x.uid === uid && x.date === d) && !leaveOf(uid, d) && !closureFor(uid, d)) summary.missing.push(`${u.name} ${md(d)}`); }); }
   return { wb, summary };
 }

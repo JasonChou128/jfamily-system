@@ -449,3 +449,40 @@ body { font-family: 'Noto Sans TC', sans-serif; background: var(--bg); color: va
 .dr-notes { margin: 6px 0 2px; padding-left: 10px; border-left: 2px solid var(--accent); font-size: 12.5px; }
 .dr-notes div { padding: 2px 0; }
 .dr-notes span { color: var(--accent); margin-right: 8px; }
+
+/* ═══ v2.5 原廠工單、人力負荷 ═══ */
+.fb-stats { grid-template-columns: repeat(4, 1fr); }
+.fb-stats .gbg b { color: #5B9BD5; }
+@media (max-width: 560px) { .fb-stats { grid-template-columns: repeat(2, 1fr); } }
+.fb-sync { font-size: 12.5px; color: var(--text-muted); margin-bottom: 12px; }
+.fb-sync.stale { color: #FF8A80; font-weight: 600; }
+.fb-filters { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 10px; }
+.fb-filters select { width: auto; min-width: 130px; flex: 0 1 auto; }
+.fb-legend { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-muted); }
+.fb-legend > span { display: inline-flex; align-items: center; gap: 6px; }
+.fb-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; vertical-align: middle; }
+.fb-dot.gbg { background: #3b82f6; box-shadow: 0 0 0 3px rgba(59,130,246,.2); }
+.fb-dot.wait-fab { background: #E5484D; box-shadow: 0 0 0 3px rgba(229,72,77,.18); }
+.fb-dot.done { background: var(--text-dim); }
+.fb-over { display: inline-block; font-size: 11.5px; font-weight: 600; color: #FFB4A8; border: 1px dashed #FF8A80; border-radius: 6px; padding: 0 6px; line-height: 18px; }
+.fb-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px; }
+.fb-card.closed { opacity: .6; }
+.fb-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 12.5px; }
+.fb-id { font-family: 'JetBrains Mono', monospace; color: var(--accent); text-decoration: none; font-weight: 600; }
+.fb-id:hover, .fb-title:hover { text-decoration: underline; }
+.fb-site { font-size: 11.5px; padding: 1px 8px; border-radius: 999px; background: var(--surface3); color: var(--text); white-space: nowrap; }
+.fb-st { color: var(--text-muted); }
+.fb-pr { font-size: 11px; color: #F3D77A; border: 1px solid #7a6421; border-radius: 6px; padding: 0 6px; }
+.fb-title { color: var(--text); font-size: 15px; font-weight: 500; text-decoration: none; word-break: break-word; }
+.fb-meta { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12.5px; color: var(--text-muted); }
+.fb-last { background: var(--surface2); border-radius: 8px; padding: 8px 10px; font-size: 13px; color: #c9cbe0; word-break: break-word; }
+.fb-last-h { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; color: var(--text-muted); margin-bottom: 2px; }
+.fb-last-h b { color: var(--text); font-weight: 600; }
+.fb-mini { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+.fb-mini a { color: var(--accent); font-family: 'JetBrains Mono', monospace; text-decoration: none; }
+.fb-mini-t { flex: 1 1 200px; min-width: 0; }
+a.dd-tk { display: block; text-decoration: none; color: inherit; }
+.wl-sel { width: auto; padding: 4px 10px; font-size: 13px; }
+.dd-table td.wl-yel { background: rgba(232,193,74,.14); color: #F3D77A; }
+.dd-table td.wl-red { background: rgba(229,72,77,.16); color: #FF8A80; font-weight: 600; }
+#userList select.dr-in { width: auto; min-width: 110px; }

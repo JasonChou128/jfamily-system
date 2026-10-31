@@ -168,3 +168,19 @@ tracking 新增 notes 子節點（沿用既有安全規則，不需重新發布�
 | 管理頁 | 新增「工作週報收件人」，每週一 08:30 自動寄出上週週報 Excel；留空則不寄 |
 
 24 小時 PC：新增 weekly-report.js、weekly-builder.mjs、run-weekly.bat；需安裝 exceljs。
+
+## v2.5：權限分級、原廠工單、人力負荷（2026-11-01）
+
+| 檔案 | 修改內容 |
+|---|---|
+| js/perm.js | 新檔：權限四級（1 工程師、2 助理、3 副管理、4 主管）與附加權限（要填日報、庫存管理）；舊資料沒有等級時 admin 視為 4、eng 視為 1 |
+| js/fabtickets.js | 新檔：原廠工單頁（Fabmatics Redmine，只讀）。統計、篩選（案場／狀態／負責人／只看等 GBG／近 30 天結案）、排序（逾期 → 等 GBG → 到期日）、藍燈等 GBG 回覆、紅燈等原廠回覆、逾期 N 天標籤、Redmine 連結、上次同步時間（超過 12 小時變紅） |
+| js/dailyreport.js | 依等級調整權限：2 級以上看全員、匯出、請假與停班管理；3 級以上主檔；4 級成員設定。不需填日報者不列入應回報、未填提醒、回報狀態。總覽新增原廠工單摘要；工程師總覽「指派給我的原廠工單」；4 級新增「人力負荷」（本月／上月，單日超過 6 小時扣 1 小時午休） |
+| js/weekly-builder.js | 出勤表只列需填日報者；新增「原廠工單」工作表（依案場：開啟、等 GBG、等原廠、逾期、本週新開、本週結案） |
+| js/admin.js | 帳號管理改為設定等級、要填日報、庫存管理；核准新帳號預設 1 工程師 |
+| js/inventory.js | 庫存編輯改為主管或有「庫存管理」權限者 |
+| index.html | 「Issue Ticket」改為「原廠工單」（舊票單資料保留、畫面隱藏）；右下角「＋」隱藏（ENABLE_FAB）；管理頁卡片依等級顯示；總覽舊票單統計隱藏 |
+| css/style.css | 原廠工單與人力負荷樣式（檔案末端） |
+| database.rules.json | users 新增 tier、report、inv 欄位且本人不可自行修改；停班、請假、待追蹤、日報的他人資料管理改為 2 級以上；新增 fabTickets（登入成員可讀，只由 24 小時 PC 寫入） |
+
+24 小時 PC：新增 fab-fetch.js（Redmine 擷取程式）、fab-sync.js（上傳 Firebase）、run-fabsync.bat；daily-digest.js 排除不需填日報者並在同步逾 12 小時時提醒；weekly-report.js 附上原廠工單統計；weekly-builder.mjs 與網站同步。排程任務「Fabmatics 工單同步」每天 06:55、13:55、18:55、23:55 由 Claude 擷取，PC 工作排程器每小時 :20 上傳。
