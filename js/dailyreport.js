@@ -639,7 +639,7 @@ const mileCfg = () => bufCfg(settings.mileBuf);
 function calcFuel() {
   const c = claimKm(route.legs, $('drDate') ? $('drDate').value : today(), mileCfg());
   $('drKm').textContent = c.claim; $('drRate').textContent = rate(); $('drFuel').textContent = Math.round(c.claim * rate()).toLocaleString();
-  const b = $('drKmBuf'); if (b) b.textContent = c.on ? `（Google ${c.raw} 公里＋緩衝 ${c.buf}，進位；同一天多筆時合計後進位）` : '';
+  const b = $('drKmBuf'); if (b) b.textContent = c.on ? `（已依里程規則加計：${mileShort()}）` : '';
 }
 
 // ── 自動計算公里（Google Routes API，結果快取於 distCache，同一路段只查一次） ──
@@ -1049,7 +1049,8 @@ function monthsBetween(from, to) {
   return out;
 }
 function fuelPeriod() { return period('Fuel'); }
-const mileNote = () => { const c = mileCfg(); return `行車公里數＝Google 路線距離＋每段緩衝（單程未滿 ${c.th} 公里加 ${c.s} 公里，${c.th} 公里以上加 ${c.l} 公里），每日合計後無條件進位；${c.from.replace(/-/g, '/')} 起適用`; };
+const mileShort = () => { const c = mileCfg(); return `單程未滿 ${c.th} 公里加 ${c.s}、${c.th} 公里以上加 ${c.l}，每日合計後無條件進位`; };
+const mileNote = () => { const c = mileCfg(); return `公里數＝路線距離＋每段單程緩衝（未滿 ${c.th} 公里加 ${c.s} 公里，${c.th} 公里以上加 ${c.l} 公里），每日合計後無條件進位；${c.from.replace(/-/g, '/')} 起適用`; };
 function period(px) {
   if ($(`dr${px}Mode`).value !== 'range') {
     const m = $(`dr${px}Month`).value;
@@ -1078,7 +1079,8 @@ function dayRows(uid, pd) {
     return {
       date: d, company: uj(cs.map(r => nm('sites', r.site)), '/'), contact: uj(cs.map(r => r.contact), '/'),
       reason: cs.map(r => (r.items || []).join('/')).join('；'), route: chain.join('--'),
-      ...(c => ({ km: c.claim, rawKm: c.raw, buf: c.buf, bufOn: c.on }))(dayClaim(cs, d, mileCfg())), updatedAt: cs.reduce((a, r) => r.updatedAt > a ? r.updatedAt : a, ''),
+      ...(c => ({ km: c.claim, rawKm: c.raw, buf: c.buf, bufOn: c.on }))(dayClaim(cs, d, mileCfg())),
+      legs: cs.flatMap(r => Object.values((r.route && r.route.legs) || {}).map(x => parseFloat(x) || 0)).filter(x => x > 0), updatedAt: cs.reduce((a, r) => r.updatedAt > a ? r.updatedAt : a, ''),
     };
   });
 }
@@ -1092,11 +1094,11 @@ function renderFuel() {
   const changed = exp ? rows.filter(r => r.updatedAt > exp).length : 0;
   $('drFuelWarn').innerHTML = changed ? `<div class="dr-warn">此報表已於 ${esc(new Date(exp).toLocaleString('zh-TW'))} 匯出過，之後有 ${changed} 天的日報被修改，已匯出的檔案數字可能不一致。</div>` : '';
   if (!rows.length) { out.innerHTML = `<div class="empty-state"><div class="icon">⛽</div>${esc(userName(uid))} 在 ${esc(pd.label)} 沒有自行開車的日報</div>`; return; }
-  const tot = round1(rows.reduce((a, r) => a + r.km, 0)), rawTot = round1(rows.reduce((a, r) => a + r.rawKm, 0)), anyBuf = rows.some(r => r.bufOn);
-  out.innerHTML = `<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>日期</th><th>拜訪公司</th><th>拜訪人員</th><th>起點/終點</th>${anyBuf ? '<th style="text-align:right">Google 公里</th><th style="text-align:right">緩衝</th>' : ''}<th style="text-align:right">${anyBuf ? '報帳公里' : '公里'}</th><th style="text-align:right">油資</th></tr></thead><tbody>` +
-    rows.map(r => `<tr><td>${esc((pd.months.length > 1 && r.date.slice(0, 4) !== pd.from.slice(0, 4) ? r.date.slice(0, 4) + '/' : '') + r.date.slice(5).replace('-', '/'))}</td><td>${esc(r.company)}</td><td>${esc(r.contact)}</td><td>${esc(r.route)}</td>${anyBuf ? `<td style="text-align:right">${r.rawKm}</td><td style="text-align:right">${r.bufOn ? '+' + r.buf : '—'}</td>` : ''}<td style="text-align:right">${r.km}</td><td style="text-align:right">${Math.round(r.km * rate()).toLocaleString()}</td></tr>`).join('') +
-    `<tr class="dr-sum"><td colspan="4">合計 ${rows.length} 天</td>${anyBuf ? `<td style="text-align:right">${rawTot}</td><td></td>` : ''}<td style="text-align:right">${tot}</td><td style="text-align:right">NT$ ${Math.round(tot * rate()).toLocaleString()}</td></tr></tbody></table></div>
-    ${anyBuf ? `<div class="dr-hint" style="margin-top:6px">${esc(mileNote())}</div>` : ''}
+  const tot = round1(rows.reduce((a, r) => a + r.km, 0)), anyBuf = rows.some(r => r.bufOn);
+  out.innerHTML = `<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>日期</th><th>拜訪公司</th><th>拜訪人員</th><th>起點/終點</th><th style="text-align:right">公里</th><th style="text-align:right">油資</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${esc((pd.months.length > 1 && r.date.slice(0, 4) !== pd.from.slice(0, 4) ? r.date.slice(0, 4) + '/' : '') + r.date.slice(5).replace('-', '/'))}</td><td>${esc(r.company)}</td><td>${esc(r.contact)}</td><td>${esc(r.route)}</td><td style="text-align:right">${r.km}</td><td style="text-align:right">${Math.round(r.km * rate()).toLocaleString()}</td></tr>`).join('') +
+    `<tr class="dr-sum"><td colspan="4">合計 ${rows.length} 天</td><td style="text-align:right">${tot}</td><td style="text-align:right">NT$ ${Math.round(tot * rate()).toLocaleString()}</td></tr></tbody></table></div>
+    ${anyBuf || mileCfg().from ? `<div class="dr-hint" style="margin-top:6px">里程規則：${esc(mileNote())}</div>` : ''}
     <div class="dr-hint" style="margin-top:8px">${exp ? '上次匯出：' + esc(new Date(exp).toLocaleString('zh-TW')) : '尚未匯出'}</div>`;
 }
 
@@ -1126,7 +1128,7 @@ async function exportXlsx() {
   const n = Math.max(rows.length, 21), first = 7, last = first + n - 1;
   for (let k = 0; k < n; k++) {
     const row = ws.getRow(first + k), d = rows[k]; row.height = 30;
-    const vals = d ? [new Date(Date.UTC(+d.date.slice(0, 4), +d.date.slice(5, 7) - 1, +d.date.slice(8, 10))), d.company, d.contact, d.reason, d.bufOn ? `${d.route}\n（Google ${d.rawKm} km＋緩衝 ${d.buf} km）` : d.route, d.km, R, { formula: `F${first + k}*G${first + k}` }, 'NA'] : Array(9).fill(null);
+    const vals = d ? [new Date(Date.UTC(+d.date.slice(0, 4), +d.date.slice(5, 7) - 1, +d.date.slice(8, 10))), d.company, d.contact, d.reason, d.route, d.bufOn && d.legs.length ? { formula: `ROUNDUP(${d.legs.map(k => `${k}+${k < mileCfg().th ? mileCfg().s : mileCfg().l}`).join('+')},0)`, result: d.km } : d.km, R, { formula: `F${first + k}*G${first + k}` }, 'NA'] : Array(9).fill(null);
     vals.forEach((v, i) => {
       const c = row.getCell(i + 1);
       Object.assign(c, { value: v, font: { name: F, size: 10 }, alignment: { horizontal: 'center', vertical: 'middle', wrapText: i === 3 || i === 4 }, border: { top: thin, bottom: thin, left: i === 0 ? med : thin, right: i === 8 ? med : thin } });
@@ -1140,9 +1142,8 @@ async function exportXlsx() {
   for (let ci = 1; ci <= 9; ci++) ws.getCell(tr, ci).border = { top: thin, bottom: med, left: ci === 1 ? med : thin, right: ci === 9 ? med : thin };
   const sr = tr + 1;
   [['A', '總經理：', 14, true], ['D', '部門主管：', 14, true], ['F', '申請人：', 12, false], ['G', userCname(uid), 12, false]].forEach(([c, v, sz, b]) => Object.assign(ws.getCell(c + sr), { value: v, font: { name: F, size: sz, bold: b }, alignment: { vertical: 'middle' } }));
-  const notes = ['備註：', `1.每公里補助${R}元`, '2.每月31日前送到財務部', ...(rows.some(r => r.bufOn) ? ['3.' + mileNote()] : [])];
-  notes.forEach((t, i) => Object.assign(ws.getCell('A' + (sr + 1 + i)), { value: t, font: { name: F, size: i === 3 ? 11 : 14 }, alignment: { vertical: 'middle' } }));
-  for (let q = sr; q <= sr + notes.length; q++) ws.getRow(q).height = 26.25;
+  ['備註：', `1.每公里補助${R}元`, '2.每月31日前送到財務部'].forEach((t, i) => Object.assign(ws.getCell('A' + (sr + 1 + i)), { value: t, font: { name: F, size: 14 }, alignment: { vertical: 'middle' } }));
+  for (let q = sr; q <= sr + 3; q++) ws.getRow(q).height = 26.25;
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${pd.file}_出差油資_${userName(uid)}.xlsx`;
@@ -1428,7 +1429,7 @@ function dashWar(m) {
     { l: `${+m.slice(5)} 月出勤人天`, v: T.pd, u: '人天', c: '#E7EAF2', d: P ? pctDelta(T.pd, P.pd) : `外勤 ${T.field}・內勤 ${T.office}`, dc: '#6FD3AE', s: spark(trendSeries('pd', s0 => s0.team.pd).map(x => x.v), '#E7EAF2') },
     { l: '未結案待追蹤', v: open.length, u: '件', c: '#E8C14A', d: `已逾期 ${open.filter(([, x]) => x.due && x.due < t).length} 件・超過 7 天 ${open.filter(([, x]) => daysSince(x.date) > 7).length} 件`, dc: '#FF8A80', s: spark(trendSeries('o', s0 => s0.team.trk.openEnd).map(x => x.v), '#E8C14A') },
     { l: 'FMX 等 GBG 回覆', v: fGbg, u: '張', c: '#4C8DF6', d: `開啟 ${fOpen.length} 張・逾期 ${fOver} 張`, dc: fOver ? '#FF8A80' : '#9AA3B5', s: '' },
-    { l: `${+m.slice(5)} 月費用`, v: (T.fuel + T.exp).toLocaleString(), u: 'NT$', c: '#E7EAF2', d: `油資 ${T.fuel.toLocaleString()}（${T.km} km）・雜項 ${T.exp.toLocaleString()}`, dc: '#9AA3B5', s: spark(trendSeries('c', s0 => s0.team.fuel + s0.team.exp).map(x => x.v), '#E7EAF2') },
+    { l: `${+m.slice(5)} 月費用（估算）`, v: '約 ' + (T.fuel + T.exp).toLocaleString(), u: 'NT$', c: '#E7EAF2', d: `油資 ${T.fuel.toLocaleString()}（${T.km} km）・雜項 ${T.exp.toLocaleString()}`, dc: '#9AA3B5', s: spark(trendSeries('c', s0 => s0.team.fuel + s0.team.exp).map(x => x.v), '#E7EAF2') },
   ];
   const rate0 = expected.length ? reported.length / expected.length * 100 : 100;
   return `
@@ -1511,7 +1512,7 @@ function dashEng(m) {
     <div class="card wr-card wr-half"><div class="wr-ct"><h3>我的 ${+m.slice(5)} 月出勤日曆</h3><span class="dr-hint">顏色＝當天工時；未填可點選補填</span></div>
       <div class="wr-cal">${['一', '二', '三', '四', '五', '六', '日'].map(w => `<span class="wr-cal-w">${w}</span>`).join('')}${cells.join('')}</div>
       ${heatLegend()}
-      <div class="wr-cal-f"><span>里程 ${km} km・油資 ${money(km * rate())}・雜項 ${money(expSum)}</span><button type="button" class="btn btn-ghost btn-sm" data-go="fuel">匯出報表</button></div></div>
+      <div class="wr-cal-f"><span>估算：里程 ${km} km・油資約 ${money(km * rate())}・雜項 ${money(expSum)}</span><button type="button" class="btn btn-ghost btn-sm" data-go="fuel">匯出報表</button></div></div>
     <div class="wr-half wr-col">
       <div class="card wr-card"><div class="wr-ct"><h3>近 6 個月工時</h3><div class="wr-legend"><span><i style="background:#4C8DF6"></i>正常工時</span><span><i style="background:#E8C14A"></i>估算加班</span></div></div>
         <div class="wr-bars wr-trend">${tr.map(x => { const v = x.v; return `<div class="wr-bar">${v && v.days ? `<span class="wr-bar-n">${Math.round(v.hours)}h</span><div style="height:${v.ot / mxH * 120}px;background:#E8C14A;border-radius:3px 3px 0 0"></div><div style="height:${(v.hours - v.ot) / mxH * 120}px;background:#4C8DF6"></div>` : '<span class="wr-bar-n">—</span>'}<span class="wr-bar-d">${+x.m.slice(5)} 月</span></div>`; }).join('')}</div></div>
