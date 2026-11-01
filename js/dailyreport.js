@@ -1094,11 +1094,10 @@ function renderFuel() {
   const changed = exp ? rows.filter(r => r.updatedAt > exp).length : 0;
   $('drFuelWarn').innerHTML = changed ? `<div class="dr-warn">此報表已於 ${esc(new Date(exp).toLocaleString('zh-TW'))} 匯出過，之後有 ${changed} 天的日報被修改，已匯出的檔案數字可能不一致。</div>` : '';
   if (!rows.length) { out.innerHTML = `<div class="empty-state"><div class="icon">⛽</div>${esc(userName(uid))} 在 ${esc(pd.label)} 沒有自行開車的日報</div>`; return; }
-  const tot = round1(rows.reduce((a, r) => a + r.km, 0)), anyBuf = rows.some(r => r.bufOn);
+  const tot = round1(rows.reduce((a, r) => a + r.km, 0));
   out.innerHTML = `<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>日期</th><th>拜訪公司</th><th>拜訪人員</th><th>起點/終點</th><th style="text-align:right">公里</th><th style="text-align:right">油資</th></tr></thead><tbody>` +
     rows.map(r => `<tr><td>${esc((pd.months.length > 1 && r.date.slice(0, 4) !== pd.from.slice(0, 4) ? r.date.slice(0, 4) + '/' : '') + r.date.slice(5).replace('-', '/'))}</td><td>${esc(r.company)}</td><td>${esc(r.contact)}</td><td>${esc(r.route)}</td><td style="text-align:right">${r.km}</td><td style="text-align:right">${Math.round(r.km * rate()).toLocaleString()}</td></tr>`).join('') +
     `<tr class="dr-sum"><td colspan="4">合計 ${rows.length} 天</td><td style="text-align:right">${tot}</td><td style="text-align:right">NT$ ${Math.round(tot * rate()).toLocaleString()}</td></tr></tbody></table></div>
-    ${anyBuf || mileCfg().from ? `<div class="dr-hint" style="margin-top:6px">里程規則：${esc(mileNote())}</div>` : ''}
     <div class="dr-hint" style="margin-top:8px">${exp ? '上次匯出：' + esc(new Date(exp).toLocaleString('zh-TW')) : '尚未匯出'}</div>`;
 }
 
