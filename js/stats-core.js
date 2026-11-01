@@ -2,6 +2,18 @@
 // monthStats(D) → { team, users }
 // D: { m:'YYYY-MM', today:'YYYY-MM-DD', reports:{id:report}（該月）, users, holidays, workdays, closures, leaves, tracking, master, offices, rate, remindFrom }
 // 加班估算：單日超過 6 小時扣 1 小時午休；工作日超過 8 小時、非工作日（含停班）全部列為加班。依日報工作時間，不含交通時間。
+// v2.6.1 里程緩衝：settings.mileBuf = { from: 生效日, th: 門檻 km, s: 未滿門檻加 km, l: 門檻以上加 km }
+// 每段單程依距離加緩衝，同一人同一天合計後無條件進位到整數；生效日前或未設定時維持原公里數（小數一位）
+export const bufCfg = mb => { const b = mb || {}; const n = (v, d) => (v === undefined || v === null || v === '' || isNaN(Number(v))) ? d : Number(v); return { from: b.from || '', th: n(b.th, 5), s: n(b.s, 2), l: n(b.l, 5) }; };
+export function claimKm(legs, date, cfg) {
+  const ks = (legs || []).map(x => parseFloat(x) || 0), raw = Math.round(ks.reduce((a, b) => a + b, 0) * 10) / 10;
+  if (!cfg || !cfg.from || !date || date < cfg.from) return { raw, claim: raw, buf: 0, on: false };
+  const buf = ks.reduce((a, k) => a + (k > 0 ? (k < cfg.th ? cfg.s : cfg.l) : 0), 0);
+  return { raw, claim: Math.ceil(raw + buf - 1e-9), buf, on: true };
+}
+const legsOf = r => (r && r.drive && r.route && r.route.legs ? Object.values(r.route.legs) : []);
+export function dayClaim(reps, date, cfg) { return claimKm(reps.flatMap(legsOf), date, cfg); }
+
 export function monthStats(D) {
   const { m, users = {}, master = {} } = D;
   const holidays = D.holidays || {}, workdays = D.workdays || {}, closures = D.closures || {}, leaves = D.leaves || {}, tracking = D.tracking || {};
@@ -26,7 +38,7 @@ export function monthStats(D) {
   const custName = r => isOffice(r) ? '內勤' : nm('customers', r.cust);
   const siteLabel = r => isOffice(r) ? '內勤／' + ((offices[r.office] || offices.tf || {}).name || '辦公室') : `${nm('customers', r.cust)}／${nm('sites', r.site)}`;
   const hoursOf = r => { if (!r.start || !r.end) return 0; const a = +r.start.slice(0, 2) * 60 + +r.start.slice(3), b = +r.end.slice(0, 2) * 60 + +r.end.slice(3) + (r.overnight ? 1440 : 0); return Math.max(0, (b - a) / 60); };
-  const legs = r => (r.route && r.route.legs ? Object.values(r.route.legs) : []).reduce((a, b) => a + (parseFloat(b) || 0), 0);
+  const cfg = bufCfg(D.mileBuf);
   const r1 = n => Math.round(n * 10) / 10;
   const reps = Object.values(D.reports || {}).filter(r => r && r.date && r.date >= mStart && r.date <= upto);
 
@@ -63,7 +75,8 @@ export function monthStats(D) {
 
   // ── 團隊 ──
   const pdSet = new Set(reps.map(r => r.uid + '|' + r.date)), offSet = new Set(reps.filter(isOffice).map(r => r.uid + '|' + r.date));
-  const km = reps.filter(r => r.drive).reduce((a, r) => a + legs(r), 0);
+  const dayGroups = {}; reps.filter(r => r.drive).forEach(r => { (dayGroups[r.uid + '|' + r.date] = dayGroups[r.uid + '|' + r.date] || []).push(r); });
+  let km = 0, rawKm = 0; Object.entries(dayGroups).forEach(([k, rs]) => { const c = dayClaim(rs, k.split('|')[1], cfg); km += c.claim; rawKm += c.raw; });
   const exp = reps.reduce((a, r) => a + Object.values(r.exps || {}).reduce((b, x) => b + (parseFloat(x && x.amt) || 0), 0), 0);
   const cust = {}; reps.forEach(r => { const k = custName(r); (cust[k] = cust[k] || new Set()).add(r.uid + '|' + r.date); });
   const perSite = {};
@@ -86,7 +99,7 @@ export function monthStats(D) {
   Object.entries(perSite).forEach(([k, o]) => { sites[k.replace(/[.#$/\[\]]/g, '_')] = { label: k, visits: o.visits, pd: o.pd.size, who: Object.keys(o.who), hours: r1(o.hours), tNew: o.tNew || 0, tCl: o.tCl || 0, tOpen: o.tOpen || 0, tOver: o.tOver || 0 }; });
   const team = {
     m, upto, pd: pdSet.size, field: pdSet.size - offSet.size, office: offSet.size, visits: reps.filter(r => !isOffice(r)).length,
-    siteN: Object.values(sites).filter(s => s.visits).length, km: r1(km), fuel: Math.round(r1(km) * rate), exp: Math.round(exp),
+    siteN: Object.values(sites).filter(s => s.visits).length, km: r1(km), rawKm: r1(rawKm), fuel: Math.round(r1(km) * rate), exp: Math.round(exp),
     cust: Object.entries(cust).map(([name, s]) => ({ name, pd: s.size })).sort((a, b) => b.pd - a.pd),
     trk, sites, reporters: Object.keys(out).length, ot: r1(Object.values(out).reduce((a, x) => a + x.ot, 0)),
   };

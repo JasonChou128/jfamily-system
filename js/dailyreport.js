@@ -4,7 +4,7 @@ import { db, today } from './config.js';
 import { buildWeekly } from './weekly-builder.js';
 import { tierOf, needsReport, canViewAll, canMaster, isBoss } from './perm.js';
 import { onFab, fabData, fabSiteStats, isMine, overdueDays, linkOf, ballDot, fmtTime } from './fabtickets.js';
-import { monthStats } from './stats-core.js';
+import { monthStats, bufCfg, claimKm, dayClaim } from './stats-core.js';
 import { ref, set, push, update, remove, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const DEFAULTS = {
@@ -213,7 +213,7 @@ function buildPanels() {
         <button type="button" class="btn btn-ghost btn-sm" id="drAddCustom">加入其他地點</button>
       </div>
       <div class="dr-auto"><button type="button" class="btn btn-primary btn-sm" id="drAutoKm">自動計算公里</button><span class="dr-hint" id="drAutoMsg">計算空白的路段；要重算某段，先清空該段公里數</span></div>
-      <div class="dr-total"><span>總里程 <b id="drKm">0</b> 公里 × <span id="drRate">8</span> 元</span><span class="dr-big">NT$ <span id="drFuel">0</span></span></div>
+      <div class="dr-total"><span>總里程 <b id="drKm">0</b> 公里 × <span id="drRate">8</span> 元<span class="dr-hint" id="drKmBuf"></span></span><span class="dr-big">NT$ <span id="drFuel">0</span></span></div>
     </div>
 
     </div>
@@ -382,6 +382,13 @@ function buildPanels() {
       <div class="form-group" style="flex:1;margin:0"><label>Google 路線金鑰（自動計算公里用）　<span id="drGKeyState" style="text-transform:none;letter-spacing:0"></span></label><input class="dr-in" id="drGKey" type="password" autocomplete="off" placeholder="輸入新金鑰以設定或更換"></div>
       <button class="btn btn-primary btn-sm" id="drGKeySave">儲存金鑰</button>
       <button class="btn btn-danger btn-sm" id="drGKeyClear">清除</button>
+    </div>
+    <div class="dr-gnames dr-mile">
+      <div class="form-group" style="margin:0"><label>里程緩衝生效日（留空＝不加緩衝）</label><input type="date" class="dr-in" id="drMileFrom"></div>
+      <div class="form-group" style="margin:0"><label>門檻（公里）</label><input type="number" min="0" step="0.5" class="dr-in" id="drMileTh"></div>
+      <div class="form-group" style="margin:0"><label>未滿門檻加（公里）</label><input type="number" min="0" step="0.5" class="dr-in" id="drMileS"></div>
+      <div class="form-group" style="margin:0"><label>門檻以上加（公里）</label><input type="number" min="0" step="0.5" class="dr-in" id="drMileL"></div>
+      <button class="btn btn-primary btn-sm" id="drMileSave">儲存里程緩衝</button>
     </div>
     <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>公司日報表填表人名單（需與 Google 表單選項完全相同，以逗號分隔）</label><input class="dr-in" id="drGNames"></div>
@@ -628,7 +635,12 @@ function bindRoute() {
   });
 }
 const kmOf = r => (r && r.legs ? r.legs : []).reduce((a, b) => a + (parseFloat(b) || 0), 0);
-function calcFuel() { const km = round1(kmOf(route)); $('drKm').textContent = km; $('drRate').textContent = rate(); $('drFuel').textContent = Math.round(km * rate()).toLocaleString(); }
+const mileCfg = () => bufCfg(settings.mileBuf);
+function calcFuel() {
+  const c = claimKm(route.legs, $('drDate') ? $('drDate').value : today(), mileCfg());
+  $('drKm').textContent = c.claim; $('drRate').textContent = rate(); $('drFuel').textContent = Math.round(c.claim * rate()).toLocaleString();
+  const b = $('drKmBuf'); if (b) b.textContent = c.on ? `（Google ${c.raw} 公里＋緩衝 ${c.buf}，進位；同一天多筆時合計後進位）` : '';
+}
 
 // ── 自動計算公里（Google Routes API，結果快取於 distCache，同一路段只查一次） ──
 function addrOf(p) {
@@ -1037,6 +1049,7 @@ function monthsBetween(from, to) {
   return out;
 }
 function fuelPeriod() { return period('Fuel'); }
+const mileNote = () => { const c = mileCfg(); return `行車公里數＝Google 路線距離＋每段緩衝（單程未滿 ${c.th} 公里加 ${c.s} 公里，${c.th} 公里以上加 ${c.l} 公里），每日合計後無條件進位；${c.from.replace(/-/g, '/')} 起適用`; };
 function period(px) {
   if ($(`dr${px}Mode`).value !== 'range') {
     const m = $(`dr${px}Month`).value;
@@ -1065,7 +1078,7 @@ function dayRows(uid, pd) {
     return {
       date: d, company: uj(cs.map(r => nm('sites', r.site)), '/'), contact: uj(cs.map(r => r.contact), '/'),
       reason: cs.map(r => (r.items || []).join('/')).join('；'), route: chain.join('--'),
-      km: round1(cs.reduce((a, r) => a + kmOf(r.route), 0)), updatedAt: cs.reduce((a, r) => r.updatedAt > a ? r.updatedAt : a, ''),
+      ...(c => ({ km: c.claim, rawKm: c.raw, buf: c.buf, bufOn: c.on }))(dayClaim(cs, d, mileCfg())), updatedAt: cs.reduce((a, r) => r.updatedAt > a ? r.updatedAt : a, ''),
     };
   });
 }
@@ -1079,10 +1092,11 @@ function renderFuel() {
   const changed = exp ? rows.filter(r => r.updatedAt > exp).length : 0;
   $('drFuelWarn').innerHTML = changed ? `<div class="dr-warn">此報表已於 ${esc(new Date(exp).toLocaleString('zh-TW'))} 匯出過，之後有 ${changed} 天的日報被修改，已匯出的檔案數字可能不一致。</div>` : '';
   if (!rows.length) { out.innerHTML = `<div class="empty-state"><div class="icon">⛽</div>${esc(userName(uid))} 在 ${esc(pd.label)} 沒有自行開車的日報</div>`; return; }
-  const tot = round1(rows.reduce((a, r) => a + r.km, 0));
-  out.innerHTML = `<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>日期</th><th>拜訪公司</th><th>拜訪人員</th><th>起點/終點</th><th style="text-align:right">公里</th><th style="text-align:right">油資</th></tr></thead><tbody>` +
-    rows.map(r => `<tr><td>${esc((pd.months.length > 1 && r.date.slice(0, 4) !== pd.from.slice(0, 4) ? r.date.slice(0, 4) + '/' : '') + r.date.slice(5).replace('-', '/'))}</td><td>${esc(r.company)}</td><td>${esc(r.contact)}</td><td>${esc(r.route)}</td><td style="text-align:right">${r.km}</td><td style="text-align:right">${Math.round(r.km * rate()).toLocaleString()}</td></tr>`).join('') +
-    `<tr class="dr-sum"><td colspan="4">合計 ${rows.length} 天</td><td style="text-align:right">${tot}</td><td style="text-align:right">NT$ ${Math.round(tot * rate()).toLocaleString()}</td></tr></tbody></table></div>
+  const tot = round1(rows.reduce((a, r) => a + r.km, 0)), rawTot = round1(rows.reduce((a, r) => a + r.rawKm, 0)), anyBuf = rows.some(r => r.bufOn);
+  out.innerHTML = `<div style="overflow-x:auto"><table class="data-table"><thead><tr><th>日期</th><th>拜訪公司</th><th>拜訪人員</th><th>起點/終點</th>${anyBuf ? '<th style="text-align:right">Google 公里</th><th style="text-align:right">緩衝</th>' : ''}<th style="text-align:right">${anyBuf ? '報帳公里' : '公里'}</th><th style="text-align:right">油資</th></tr></thead><tbody>` +
+    rows.map(r => `<tr><td>${esc((pd.months.length > 1 && r.date.slice(0, 4) !== pd.from.slice(0, 4) ? r.date.slice(0, 4) + '/' : '') + r.date.slice(5).replace('-', '/'))}</td><td>${esc(r.company)}</td><td>${esc(r.contact)}</td><td>${esc(r.route)}</td>${anyBuf ? `<td style="text-align:right">${r.rawKm}</td><td style="text-align:right">${r.bufOn ? '+' + r.buf : '—'}</td>` : ''}<td style="text-align:right">${r.km}</td><td style="text-align:right">${Math.round(r.km * rate()).toLocaleString()}</td></tr>`).join('') +
+    `<tr class="dr-sum"><td colspan="4">合計 ${rows.length} 天</td>${anyBuf ? `<td style="text-align:right">${rawTot}</td><td></td>` : ''}<td style="text-align:right">${tot}</td><td style="text-align:right">NT$ ${Math.round(tot * rate()).toLocaleString()}</td></tr></tbody></table></div>
+    ${anyBuf ? `<div class="dr-hint" style="margin-top:6px">${esc(mileNote())}</div>` : ''}
     <div class="dr-hint" style="margin-top:8px">${exp ? '上次匯出：' + esc(new Date(exp).toLocaleString('zh-TW')) : '尚未匯出'}</div>`;
 }
 
@@ -1112,7 +1126,7 @@ async function exportXlsx() {
   const n = Math.max(rows.length, 21), first = 7, last = first + n - 1;
   for (let k = 0; k < n; k++) {
     const row = ws.getRow(first + k), d = rows[k]; row.height = 30;
-    const vals = d ? [new Date(Date.UTC(+d.date.slice(0, 4), +d.date.slice(5, 7) - 1, +d.date.slice(8, 10))), d.company, d.contact, d.reason, d.route, d.km, R, { formula: `F${first + k}*G${first + k}` }, 'NA'] : Array(9).fill(null);
+    const vals = d ? [new Date(Date.UTC(+d.date.slice(0, 4), +d.date.slice(5, 7) - 1, +d.date.slice(8, 10))), d.company, d.contact, d.reason, d.bufOn ? `${d.route}\n（Google ${d.rawKm} km＋緩衝 ${d.buf} km）` : d.route, d.km, R, { formula: `F${first + k}*G${first + k}` }, 'NA'] : Array(9).fill(null);
     vals.forEach((v, i) => {
       const c = row.getCell(i + 1);
       Object.assign(c, { value: v, font: { name: F, size: 10 }, alignment: { horizontal: 'center', vertical: 'middle', wrapText: i === 3 || i === 4 }, border: { top: thin, bottom: thin, left: i === 0 ? med : thin, right: i === 8 ? med : thin } });
@@ -1126,8 +1140,9 @@ async function exportXlsx() {
   for (let ci = 1; ci <= 9; ci++) ws.getCell(tr, ci).border = { top: thin, bottom: med, left: ci === 1 ? med : thin, right: ci === 9 ? med : thin };
   const sr = tr + 1;
   [['A', '總經理：', 14, true], ['D', '部門主管：', 14, true], ['F', '申請人：', 12, false], ['G', userCname(uid), 12, false]].forEach(([c, v, sz, b]) => Object.assign(ws.getCell(c + sr), { value: v, font: { name: F, size: sz, bold: b }, alignment: { vertical: 'middle' } }));
-  ['備註：', `1.每公里補助${R}元`, '2.每月31日前送到財務部'].forEach((t, i) => Object.assign(ws.getCell('A' + (sr + 1 + i)), { value: t, font: { name: F, size: 14 }, alignment: { vertical: 'middle' } }));
-  for (let q = sr; q <= sr + 3; q++) ws.getRow(q).height = 26.25;
+  const notes = ['備註：', `1.每公里補助${R}元`, '2.每月31日前送到財務部', ...(rows.some(r => r.bufOn) ? ['3.' + mileNote()] : [])];
+  notes.forEach((t, i) => Object.assign(ws.getCell('A' + (sr + 1 + i)), { value: t, font: { name: F, size: i === 3 ? 11 : 14 }, alignment: { vertical: 'middle' } }));
+  for (let q = sr; q <= sr + notes.length; q++) ws.getRow(q).height = 26.25;
   const buf = await wb.xlsx.writeBuffer();
   const blob = new Blob([buf], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
   const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `${pd.file}_出差油資_${userName(uid)}.xlsx`;
@@ -1320,7 +1335,7 @@ const PAL = ['#4C8DF6', '#3FB68B', '#E8C14A', '#B07CF0', '#F08A3C', '#5BC0DE', '
 const heatColor = h => h > 12 ? '#F08A3C' : h > 10 ? '#E8C14A' : h > 8 ? '#3FB68B' : '#1F4A3C';
 const mono = s => `<span class="wr-mono">${s}</span>`;
 function statsOf(m) {
-  return monthStats({ m, today: today(), reports: monthData[m] || {}, users, holidays, workdays, closures, leaves, tracking, master, offices: offices(), rate: rate(), remindFrom: settings.remindFrom });
+  return monthStats({ m, today: today(), reports: monthData[m] || {}, users, holidays, workdays, closures, leaves, tracking, master, offices: offices(), rate: rate(), remindFrom: settings.remindFrom, mileBuf: settings.mileBuf });
 }
 function spark(vals, color) {
   const v = vals.filter(x => x !== null && x !== undefined);
@@ -1461,7 +1476,8 @@ function dashEng(m) {
     <div class="dd-cta-btns"><button type="button" class="btn btn-ghost dd-gold-outline" data-start="today" data-office="1">今天是內勤</button><button type="button" class="btn btn-primary" data-start="today">開始填寫日報</button></div></div>`;
   const ms = statsOf(m), s = ms.users[uid] || { days: 0, field: 0, ot: 0, streak: 0, long: [], daily: {}, unfilled: [], workdays: 0, ovn: 0, hol: 0 };
   const mr = monthReports(m).filter(r => r.uid === uid);
-  const km = round1(mr.filter(r => r.drive && r.route).reduce((a, r) => a + kmOf(r.route), 0));
+  const byD = {}; mr.filter(r => r.drive && r.route).forEach(r => { (byD[r.date] = byD[r.date] || []).push(r); });
+  const km = round1(Object.entries(byD).reduce((a, [d, rs]) => a + dayClaim(rs, d, mileCfg()).claim, 0));
   const expSum = mr.reduce((a, r) => a + (r.exps || []).reduce((b, x) => b + (parseFloat(x.amt) || 0), 0), 0);
   const gauges = [
     { l: '出勤', v: s.days, u: `／ ${s.workdays} 天`, w: s.workdays ? s.days / s.workdays * 100 : 0, c: '#E7EAF2', n: `外勤 ${s.field} 天${s.unfilled.length ? `・<span class="red">未填 ${s.unfilled.length} 天</span>` : ''}` },
@@ -1778,6 +1794,8 @@ function renderMembers() {
   if (rfi && document.activeElement !== rfi) rfi.value = settings.remindFrom || '';
   const wt = $('drWeeklyTo');
   if (wt && document.activeElement !== wt) wt.value = (settings.weeklyTo || []).join(', ');
+  { const c = mileCfg(), set0 = (id, v) => { const el = $(id); if (el && document.activeElement !== el) el.value = v; };
+    set0('drMileFrom', c.from); set0('drMileTh', c.th); set0('drMileS', c.s); set0('drMileL', c.l); }
   const mt = $('drMonthlyTo');
   if (mt && document.activeElement !== mt) mt.value = (settings.monthlyTo || []).join(', ');
   const dt = $('drDigestTo');
@@ -1795,6 +1813,12 @@ function renderMembers() {
       const bad = list.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
       if (bad.length) { toast('Email 格式不正確：' + bad.join('、')); return; }
       try { await set(ref(db, 'settings/weeklyTo'), list); toast(list.length ? `週報收件人已儲存（${list.length} 位）` : '已清空，週報將不自動寄出'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
+    $('drMileSave').onclick = async () => {
+      const from = $('drMileFrom').value, th = parseFloat($('drMileTh').value), sv = parseFloat($('drMileS').value), lv = parseFloat($('drMileL').value);
+      if ([th, sv, lv].some(x => isNaN(x) || x < 0 || x > 50)) { toast('請填 0～50 的數字'); return; }
+      if (from && !confirm(`自 ${from} 起，油資里程每段單程未滿 ${th} 公里加 ${sv} 公里、${th} 公里以上加 ${lv} 公里，每日合計後無條件進位。\n確定儲存？（生效日前的日報不受影響）`)) return;
+      try { await set(ref(db, 'settings/mileBuf'), { from: from || '', th, s: sv, l: lv }); toast(from ? `里程緩衝自 ${from} 起生效` : '已停用里程緩衝'); } catch (er) { toast('儲存失敗：' + er.message); }
     };
     $('drMonthlyToSave').onclick = async () => {
       const list = [...new Set($('drMonthlyTo').value.split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];

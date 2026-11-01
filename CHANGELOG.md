@@ -200,3 +200,13 @@ tracking 新增 notes 子節點（沿用既有安全規則，不需重新發布�
 | database.rules.json | 新增 stats（團隊：2 級以上；個人：本人與 4 級）、advice（本人與 4 級）；兩者只由 24 小時 PC 寫入 |
 
 24 小時 PC：新增 stats-core.mjs、stats-nightly.js（每晚統計，run-stats.bat）、monthly-report.js（一頁式月報 PDF，run-monthly.bat）、advice-sync.js（Hana 小叮嚀上傳，併入 run-fabsync.bat）；fab-fetch.js 增加開單人與留言人；fab-sync.js 的案場名稱改為 J Family 案場（Fab14→tsmc／F14A、VisEra→采鈺／新竹廠）。Claude 排程任務：Hana 每週小叮嚀（每週一）、月報重點與每月小叮嚀（每月 1 號）。
+
+## v2.6.1：油資里程緩衝（2026-11-01）
+
+| 檔案 | 修改內容 |
+|---|---|
+| js/stats-core.js | 新增里程緩衝計算：每段單程未滿門檻加 s 公里、門檻以上加 l 公里，同一人同一天合計後無條件進位；生效日前維持原公里數 |
+| js/dailyreport.js | 管理頁新增「里程緩衝」設定（生效日、門檻、兩個緩衝值，預設 5／2／5，生效日留空＝不啟用）；油資報表加列 Google 公里、緩衝、報帳公里；Excel 起點/終點欄附註 Google 公里與緩衝、備註第 3 點說明算法；填日報時顯示含緩衝的里程；總覽與統計的油資改用報帳公里 |
+| css/style.css | 設定列樣式 |
+
+設定存在 settings/mileBuf（沿用既有規則，不需重新發布）。24 小時 PC：stats-core.mjs 更新；stats-nightly.js、monthly-report.js 傳入緩衝設定。
