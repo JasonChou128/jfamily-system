@@ -1,6 +1,6 @@
 // J Family v2.5 — FMX Issue Ticket（Fabmatics Redmine）
 // 資料由 24 小時 PC 每天同步 4 次寫入 fabTickets：{ meta:{at,syncedAt,n,open}, items:{id:{...}} }
-// 欄位：site 案場簡稱、s 標題、st 狀態、c 已結案、a 負責人、pr 優先、due 到期、u 更新、cr 建立、co 結案、
+// 欄位：site 案場（J Family 名稱）、au 開單人、ps 曾留言者、s 標題、st 狀態、c 已結案、a 負責人、pr 優先、due 到期、u 更新、cr 建立、co 結案、
 //       l 最新留言 {by,at,t}、ball 'gbg' 等 GBG 回覆／'fab' 等原廠回覆
 // 本頁只讀；要回覆或修改請點連結到 Redmine 用自己的帳號登入操作
 import { db } from './config.js';
@@ -36,11 +36,12 @@ export function fabSiteStats(items) {
   return Object.values(by).filter(o => o.open).sort((a, b) => b.open - a.open);
 }
 
-// 名字比對：J Family 姓名第一個字 = Redmine「姓, 名」的名
+// v2.6「與我相關」：負責人、開單人或曾留言者是自己（J Family 姓名第一個字 = Redmine「姓, 名」的名）
+const givenOf = n => (String(n || '').split(',')[1] || '').replace(/\(gbg\)/i, '').trim().split(/\s+/)[0].toLowerCase();
 export function isMine(it, me) {
   const first = String((me && me.name) || '').trim().split(/\s+/)[0].toLowerCase();
-  const given = (String(it.a || '').split(',')[1] || '').replace(/\(gbg\)/i, '').trim().split(/\s+/)[0].toLowerCase();
-  return !!first && first === given;
+  if (!first) return false;
+  return [it.a, it.au, ...(Array.isArray(it.ps) ? it.ps : Object.values(it.ps || {}))].some(n => givenOf(n) === first);
 }
 
 export function ballDot(it) {

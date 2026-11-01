@@ -95,6 +95,25 @@
     "fabTickets": {
       ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'eng')",
       ".write": false
+    },
+    "stats": {
+      "$m": {
+        "team": {
+          ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || (root.child('users').child(auth.uid).child('role').val() === 'eng' && root.child('users').child(auth.uid).child('tier').isNumber() && root.child('users').child(auth.uid).child('tier').val() >= 2))"
+        },
+        "users": {
+          ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+          "$uid": {
+            ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'eng') && auth.uid === $uid"
+          }
+        }
+      }
+    },
+    "advice": {
+      ".read": "auth != null && root.child('users').child(auth.uid).child('role').val() === 'admin'",
+      "$uid": {
+        ".read": "auth != null && (root.child('users').child(auth.uid).child('role').val() === 'admin' || root.child('users').child(auth.uid).child('role').val() === 'eng') && auth.uid === $uid"
+      }
     }
   }
 }

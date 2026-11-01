@@ -184,3 +184,19 @@ tracking 新增 notes 子節點（沿用既有安全規則，不需重新發布�
 | database.rules.json | users 新增 tier、report、inv 欄位且本人不可自行修改；停班、請假、待追蹤、日報的他人資料管理改為 2 級以上；新增 fabTickets（登入成員可讀，只由 24 小時 PC 寫入） |
 
 24 小時 PC：新增 fab-fetch.js（Redmine 擷取程式）、fab-sync.js（上傳 Firebase）、run-fabsync.bat；daily-digest.js 排除不需填日報者並在同步逾 12 小時時提醒；weekly-report.js 附上原廠工單統計；weekly-builder.mjs 與網站同步。排程任務「Fabmatics 工單同步」每天 06:55、13:55、18:55、23:55 由 Claude 擷取，PC 工作排程器每小時 :20 上傳。
+
+## v2.5.1：FMX Issue Ticket 更名（2026-11-01）
+
+「原廠工單」更名為「FMX Issue Ticket」，導覽列移到「待追蹤」之後；週報工作表、信件用詞同步更新。
+
+## v2.6：戰情總覽、月報、Hana 出勤小叮嚀（2026-11-01）
+
+| 檔案 | 修改內容 |
+|---|---|
+| js/stats-core.js | 新檔：月度統計核心（出勤、工時、估算加班、連續出勤、未填、案場與客戶人天、待追蹤），網頁與 24 小時 PC 共用（PC 版 stats-core.mjs） |
+| js/dailyreport.js | 總覽改為戰情風格：2 級以上看數字卡（近 6 個月趨勢）、全員出勤熱力圖、回報率、客戶人力分布、每日出勤人數、待追蹤天數分布、FMX Issue Ticket 依案場長條；4 級另有人力負荷與 Hana 小叮嚀總覽。工程師看自己的指標、出勤日曆、近 6 個月工時、Hana 小叮嚀、與我相關的 FMX Issue Ticket。總覽可切換本月／上月。管理頁新增「月報收件人」 |
+| js/fabtickets.js | 「與我相關」：負責人、開單人或曾留言者 |
+| css/style.css | 戰情總覽樣式 |
+| database.rules.json | 新增 stats（團隊：2 級以上；個人：本人與 4 級）、advice（本人與 4 級）；兩者只由 24 小時 PC 寫入 |
+
+24 小時 PC：新增 stats-core.mjs、stats-nightly.js（每晚統計，run-stats.bat）、monthly-report.js（一頁式月報 PDF，run-monthly.bat）、advice-sync.js（Hana 小叮嚀上傳，併入 run-fabsync.bat）；fab-fetch.js 增加開單人與留言人；fab-sync.js 的案場名稱改為 J Family 案場（Fab14→tsmc／F14A、VisEra→采鈺／新竹廠）。Claude 排程任務：Hana 每週小叮嚀（每週一）、月報重點與每月小叮嚀（每月 1 號）。

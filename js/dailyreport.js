@@ -4,6 +4,7 @@ import { db, today } from './config.js';
 import { buildWeekly } from './weekly-builder.js';
 import { tierOf, needsReport, canViewAll, canMaster, isBoss } from './perm.js';
 import { onFab, fabData, fabSiteStats, isMine, overdueDays, linkOf, ballDot, fmtTime } from './fabtickets.js';
+import { monthStats } from './stats-core.js';
 import { ref, set, push, update, remove, onValue, get } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const DEFAULTS = {
@@ -34,6 +35,7 @@ let route = null, items = [''], exps = [], meta = [{ st: 'done' }];
 let equipment = {}, badges = {}, srLog = {};
 let tracking = {}, holidays = {}, workdays = {}, closures = {}, leaves = {}, tickets = {}, officeMode = false;
 let contactAuto = true, prodAuto = true;
+let statsCache = {}, advice = {};   // v2.6：PC 每晚統計（近 6 個月）、Hana 小叮嚀
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -110,9 +112,25 @@ export function initDailyReport(currentUser) {
   if (+today().slice(8) <= 5) watchMonth(ym(addDays(today().slice(0, 8) + '01', -1)));
   { const w = ym(addDays(today(), -7)); watchMonth(w); }
   watchMonth(ym(today()));
-  if (isAdmin()) watchMonth(ym(addDays(today().slice(0, 8) + '01', -1)));   // 人力負荷可看上月
+  watchMonth(ym(addDays(today().slice(0, 8) + '01', -1)));   // v2.6：總覽可切換上月
   onFab(() => renderDash());
+  watchStats();
   resetForm();
+}
+
+// v2.6：近 6 個月統計（2 級以上讀團隊、每人只讀自己的、4 級讀全部）與 Hana 小叮嚀
+function watchStats() {
+  const cm = ym(today());
+  for (let i = 1; i <= 5; i++) {
+    const d = new Date(+cm.slice(0, 4), +cm.slice(5, 7) - 1 - i, 1), m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    statsCache[m] = { users: {} };
+    const ok = () => renderDash();
+    if (isMgr()) onValue(ref(db, `stats/${m}/team`), s => { statsCache[m].team = s.val() || undefined; ok(); }, () => {});
+    if (isAdmin()) onValue(ref(db, `stats/${m}/users`), s => { statsCache[m].users = s.val() || {}; ok(); }, () => {});
+    else onValue(ref(db, `stats/${m}/users/${me.uid}`), s => { if (s.val()) statsCache[m].users[me.uid] = s.val(); ok(); }, () => {});
+  }
+  if (isAdmin()) onValue(ref(db, 'advice'), s => { advice = s.val() || {}; renderDash(); }, () => {});
+  else onValue(ref(db, `advice/${me.uid}`), s => { advice = s.val() ? { [me.uid]: s.val() } : {}; renderDash(); }, () => {});
 }
 
 export function setUsers(u) {
@@ -351,6 +369,10 @@ function buildPanels() {
     <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>工作週報收件人（每週一 08:30 自動寄出上週週報 Excel；留空則不寄）</label><input class="dr-in" id="drWeeklyTo" placeholder="例如 boss@gbgtek.com.tw, jason.chou@gbgtek.com.tw"></div>
       <button class="btn btn-primary btn-sm" id="drWeeklyToSave">儲存收件人</button>
+    </div>
+    <div class="dr-gnames">
+      <div class="form-group" style="flex:1;margin:0"><label>月報收件人（每月 1 號 08:30 自動寄出上月一頁式月報 PDF；留空則不寄）</label><input class="dr-in" id="drMonthlyTo" placeholder="例如 boss@gbgtek.com.tw, jason.chou@gbgtek.com.tw"></div>
+      <button class="btn btn-primary btn-sm" id="drMonthlyToSave">儲存收件人</button>
     </div>
     <div class="dr-gnames">
       <div class="form-group" style="flex:1;margin:0"><label>每日彙整信收件人（以逗號分隔，留空則只寄給 Jason）</label><input class="dr-in" id="drDigestTo" placeholder="jason.chou@gbgtek.com.tw"></div>
@@ -1277,9 +1299,9 @@ function missStrip(uid, title) {
 }
 function renderDash() {
   const box = $('drDash'); if (!box || !me) return;
-  const m = ym(today());
-  if (!monthData[m]) { box.innerHTML = ''; return; }
-  box.innerHTML = isMgr() ? dashAdmin(m) : dashEng(m);
+  const m = dashMonth();
+  if (!monthData[m]) { box.innerHTML = '<div class="empty-state"><div class="icon">⏳</div>載入中...</div>'; return; }
+  box.innerHTML = isMgr() ? dashWar(m) : dashEng(m);
   if (!renderDash.bound) {
     renderDash.bound = true;
     box.addEventListener('click', e => {
@@ -1287,109 +1309,149 @@ function renderDash() {
       const c = e.target.closest('[data-close]'); if (c) { setClosed(c.dataset.close, true); return; }
       const g = e.target.closest('[data-go]'); if (g) window.switchTab(g.dataset.go, document.querySelector(`.nav-tab[data-tab="${g.dataset.go}"]`));
     });
-    box.addEventListener('change', e => { if (e.target.id === 'drWlMonth') { wlPrev = e.target.value === 'prev'; renderDash(); } });
+    box.addEventListener('change', e => { if (e.target.id === 'drDashMonth') { dashPrev = e.target.value === 'prev'; renderDash(); } });
   }
 }
-function dashAdmin(m) {
-  const t = today(), lw = lastWorkday(), mem = reporters();
+// ═════════════ v2.6 戰情總覽 ═════════════
+let dashPrev = false;
+const prevMonth = () => ym(addDays(today().slice(0, 8) + '01', -1));
+const dashMonth = () => dashPrev ? prevMonth() : ym(today());
+const PAL = ['#4C8DF6', '#3FB68B', '#E8C14A', '#B07CF0', '#F08A3C', '#5BC0DE', '#E5484D', '#8C96A8'];
+const heatColor = h => h > 12 ? '#F08A3C' : h > 10 ? '#E8C14A' : h > 8 ? '#3FB68B' : '#1F4A3C';
+const mono = s => `<span class="wr-mono">${s}</span>`;
+function statsOf(m) {
+  return monthStats({ m, today: today(), reports: monthData[m] || {}, users, holidays, workdays, closures, leaves, tracking, master, offices: offices(), rate: rate(), remindFrom: settings.remindFrom });
+}
+function spark(vals, color) {
+  const v = vals.filter(x => x !== null && x !== undefined);
+  if (v.filter(x => x).length < 2) return '';
+  const mx = Math.max(...v), mn = Math.min(...v);
+  const pts = v.map((x, i) => `${(i * 110 / (v.length - 1) + 4).toFixed(1)},${(34 - (x - mn) / ((mx - mn) || 1) * 28).toFixed(1)}`).join(' ');
+  return `<svg class="wr-spark" viewBox="0 0 118 38" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+const pctDelta = (a, b) => !b ? '' : `${a >= b ? '▲' : '▼'} ${Math.abs(Math.round((a - b) / b * 100))}%　較上月`;
+function monthSelect() {
+  const pm = prevMonth(), cm = ym(today());
+  return `<select class="dr-in wr-sel" id="drDashMonth" aria-label="統計月份"><option value="cur" ${dashPrev ? '' : 'selected'}>本月（${+cm.slice(5)} 月）</option><option value="prev" ${dashPrev ? 'selected' : ''}>上月（${+pm.slice(5)} 月）</option></select>`;
+}
+function trendSeries(key, sub) {   // 近 6 個月；本月與上月用即時資料，其餘用 PC 每晚統計
+  const cm = ym(today()), out = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(+cm.slice(0, 4), +cm.slice(5, 7) - 1 - i, 1), m = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const live = monthData[m] ? statsOf(m) : null;
+    const st = live || statsCache[m];
+    let v = null; try { v = st ? sub(st) : null; } catch { v = null; }
+    out.push({ m, v });
+  }
+  return out;
+}
+function heatmap(ms, m, rows) {
+  const mEnd = new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate(), t = today();
+  const days = Array.from({ length: mEnd }, (_, i) => `${m}-${String(i + 1).padStart(2, '0')}`);
+  const head = `<div class="wr-hrow"><span class="wr-hname"></span>${days.map(d => `<span class="wr-hd ${isWorkday(d) ? '' : 'off'}">${+d.slice(8)}</span>`).join('')}</div>`;
+  const body = rows.map(([uid, u]) => {
+    const s = ms.users[uid] || { daily: {}, unfilled: [] };
+    return `<div class="wr-hrow"><span class="wr-hname">${esc(u.name)}</span>${days.map(d => {
+      const h = s.daily[d.slice(8)], wd = isWorkdayFor(uid, d);
+      if (h !== undefined) return `<span class="wr-hc" style="background:${heatColor(h)}" title="${esc(mdw(d))} ${h} 小時${wd ? '' : '（假日）'}"></span>`;
+      if (isWorkday(d) && (leaveOf(uid, d) || closureFor(uid, d))) return `<span class="wr-hc" style="background:#2B4C7E" title="${esc(mdw(d))} ${leaveOf(uid, d) ? '休假' : '停班'}"></span>`;
+      if (s.unfilled.includes(d)) return `<span class="wr-hc miss" title="${esc(mdw(d))} 未填"></span>`;
+      return `<span class="wr-hc ${d > t ? 'fut' : 'none'}"></span>`;
+    }).join('')}</div>`;
+  }).join('');
+  return `<div class="wr-heat">${head}${body}</div>`;
+}
+const heatLegend = () => `<div class="wr-legend"><span><i style="background:#1F4A3C"></i>8 小時內</span><span><i style="background:#3FB68B"></i>8～10</span><span><i style="background:#E8C14A"></i>10～12</span><span><i style="background:#F08A3C"></i>12 以上</span><span><i style="background:#2B4C7E"></i>休假／停班</span><span><i class="miss"></i>未填</span></div>`;
+function donut(items, total, label) {
+  let acc = 0;
+  const grad = items.map((c, i) => { const a = acc; acc += c.pd / (total || 1) * 100; return `${PAL[i % PAL.length]} ${a.toFixed(1)}% ${acc.toFixed(1)}%`; }).join(', ');
+  return `<div class="wr-donut-wrap"><div class="wr-donut" style="background:conic-gradient(${grad || '#1B2030 0 100%'})"><div class="wr-donut-in">${mono(total)}<small>${label}</small></div></div>
+    <div class="wr-donut-leg">${items.map((c, i) => `<span><i style="background:${PAL[i % PAL.length]}"></i>${esc(c.name)}<em>${c.pd}</em></span>`).join('')}</div></div>`;
+}
+function dailyBars(m) {
+  const rs = monthReports(m), by = {};
+  rs.forEach(r => { const o = by[r.date] = by[r.date] || { f: new Set(), o: new Set() }; (isOfficeR(r) ? o.o : o.f).add(r.uid); });
+  const ds = Object.keys(by).sort(); if (!ds.length) return '<div class="dr-hint">此月份尚無日報</div>';
+  const mx = Math.max(...ds.map(d => by[d].f.size + by[d].o.size)), H = 130;
+  return `<div class="wr-bars">${ds.map(d => { const f = by[d].f.size, o = [...by[d].o].filter(u => !by[d].f.has(u)).length;
+    return `<div class="wr-bar" title="${esc(mdw(d))} 外勤 ${f}、內勤 ${o}"><span class="wr-bar-n">${f + o}</span><div style="height:${o / mx * H}px;background:#8C7A3C;border-radius:3px 3px 0 0"></div><div style="height:${f / mx * H}px;background:#4C8DF6;border-radius:2px"></div><span class="wr-bar-d ${isWorkday(d) ? '' : 'off'}">${+d.slice(8)}</span></div>`; }).join('')}</div>`;
+}
+function agingCard(open) {
+  const t = today(), b = [0, 0, 0, 0];
+  open.forEach(([, x]) => { const d = daysSince(x.date); b[d <= 7 ? 0 : d <= 14 ? 1 : d <= 30 ? 2 : 3]++; });
+  const mx = Math.max(1, ...b), cols = ['#3FB68B', '#E8C14A', '#F08A3C', '#E5484D'], lab = ['0～7 天', '8～14 天', '15～30 天', '30 天以上'];
+  const over = open.filter(([, x]) => x.due && x.due < t);
+  return `<div class="wr-aging">${b.map((n, i) => `<div class="wr-age"><span class="wr-mono" style="color:${cols[i]}">${n}</span><div style="height:${Math.max(3, n / mx * 100)}px;background:${cols[i]}"></div><em>${lab[i]}</em></div>`).join('')}</div>
+    ${over.length ? `<div class="wr-alert">已逾期 ${over.length} 件：${esc([...new Set(over.map(([, x]) => `${custName(x)}／${siteName(x)}`))].join('、'))}</div>` : '<div class="dr-hint">沒有逾期的待追蹤</div>'}`;
+}
+function fmxCard() {
+  const f = fabData(), st = fabSiteStats(f.items), mx = Math.max(1, ...st.map(o => o.open));
+  const open = st.reduce((a, o) => a + o.open, 0);
+  const need = Object.values(f.items || {}).filter(x => !x.c && x.ball === 'gbg').sort((a, b) => overdueDays(b) - overdueDays(a) || (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 5);
+  return `<div class="wr-row">
+    <div class="card wr-card wr-wide"><div class="wr-ct"><h3>FMX Issue Ticket（開啟 ${open} 張）</h3><div class="wr-legend"><span><i style="background:#4C8DF6"></i>等 GBG 回覆</span><span><i style="background:#E5484D"></i>等原廠回覆</span></div></div>
+      ${st.length ? st.map(o => `<div class="wr-fmx"><span class="wr-fmx-s">${esc(o.site)}</span><div class="wr-fmx-b" style="width:${o.open / mx * 100}%"><div style="flex:${o.gbg};background:#4C8DF6">${o.gbg || ''}</div><div style="flex:${o.fab};background:#E5484D">${o.fab || ''}</div></div><span class="wr-fmx-o">${o.over ? '逾期 ' + o.over : ''}</span></div>`).join('') : '<div class="dr-hint">尚無資料</div>'}
+      <div class="dr-hint" style="margin-top:8px">${f.meta && f.meta.at ? '同步 ' + esc(fmtTime(f.meta.at)) : '尚未同步'}</div></div>
+    <div class="card wr-card wr-narrow"><div class="wr-ct"><h3>等 GBG 回覆</h3><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">全部</button></div>
+      ${need.length ? need.map(x => `<div class="fb-mini">${ballDot(x)}<a href="${linkOf(x)}" target="_blank" rel="noopener noreferrer">#${esc(x.id)}</a><span class="fb-site">${esc(x.site || x.p)}</span><span class="fb-mini-t">${esc(String(x.s || '').trim())}</span><span class="dr-hint">${esc(x.a)}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</span></div>`).join('') : '<div class="dr-hint">目前沒有等 GBG 回覆的工單</div>'}</div></div>`;
+}
+function adviceHtml(a, short) {
+  if (!a || !a.body) return '';
+  return `<div class="wr-adv-b">${esc(a.body)}</div><div class="wr-adv-f">${esc(a.period || '')}・${esc(a.at ? fmtTime(a.at) : '')} 發佈</div>`;
+}
+function dashWar(m) {
+  const t = today(), lw = lastWorkday(), mem = reporters(), boss = isAdmin();
+  const ms = statsOf(m), pm = ym(addDays(m + '-01', -1)), pms = monthData[pm] ? statsOf(pm) : statsCache[pm];
   const expected = mem.filter(([uid]) => !leaveOf(uid, lw) && !closureFor(uid, lw));
   const reported = expected.filter(([uid]) => reportsOf(uid, lw).length);
   const missing = expected.filter(([uid]) => !reportsOf(uid, lw).length).map(([, u]) => u.name);
   const open = Object.entries(tracking).filter(([, x]) => !x.closedAt);
-  const aged = open.filter(([, x]) => daysSince(x.date) > 7).length, over = open.filter(([, x]) => x.due && x.due < t).length;
-  const mr = monthReports(m);
-  const pd = new Set(mr.map(r => r.uid + '|' + r.date)), pdOff = new Set(mr.filter(isOfficeR).map(r => r.uid + '|' + r.date));
-  const km = mr.filter(r => r.drive && r.route).reduce((a, r) => a + kmOf(r.route), 0), fuel = Math.round(round1(km) * rate());
-  const expSum = mr.reduce((a, r) => a + (r.exps || []).reduce((b, x) => b + (parseFloat(x.amt) || 0), 0), 0);
-  // 回報狀態
-  const people = mem.map(([uid, u]) => {
-    const rs = reportsOf(uid, lw), lv = leaveOf(uid, lw), cl = closureFor(uid, lw), miss = missingDays(uid).length;
-    const h = rs.reduce((a, r) => a + hoursOf(r), 0), ovn = rs.some(r => r.overnight);
-    const dot = rs.length ? ((ovn || h > 10) ? 'gold' : 'green') : (lv || cl) ? 'blue' : 'red';
-    const sub = rs.length ? null : lv ? `休假${lv.note ? '（' + lv.note + '）' : ''}` : cl ? `公司停班（${cl.name}）` : '未回報';
-    const sub2 = sub !== null ? sub : [...new Set(rs.map(r => `${custName(r)}／${siteName(r)}`))].join('、');
-    const curLeave = Object.values(leaves).find(l => l.uid === uid && l.to >= t && l.from <= addDays(t, 7));
-    const note = miss ? `<span class="red">本月未填 ${miss} 天</span>` : curLeave ? `<span class="blue">休假 ${curLeave.from.slice(5).replace('-', '/')}～${curLeave.to.slice(5).replace('-', '/')}</span>` : '<span class="green">本月全數已填</span>';
-    return `<div class="dd-person"><span class="dd-dot ${dot}"></span><div class="dd-main"><div class="dd-t">${esc(u.name)}</div><div class="dd-s ${!rs.length && !lv && !cl ? 'red' : ''}">${esc(sub2)}</div></div>
-      <div class="dd-right"><span>${rs.length ? round1(h) + 'h' + (ovn ? '・跨夜' : '') : '—'}</span>${note}</div></div>`;
-  }).join('');
-  // 近 7 天案場
-  const since = addDays(t, -7), fr = [ym(since), m].filter((x, i, a) => a.indexOf(x) === i).flatMap(monthReports).filter(r => !isOfficeR(r) && r.date >= since && r.date <= t);
-  const bySite = {};
-  fr.forEach(r => { const k = r.site; const o = bySite[k] = bySite[k] || { name: `${custName(r)}／${siteName(r)}`, visits: 0, days: new Set(), who: new Set(), site: k }; o.visits++; o.days.add(r.uid + '|' + r.date); o.who.add(userName(r.uid)); });
-  const siteRows = Object.values(bySite).sort((a, b) => b.visits - a.visits).slice(0, 8).map(o => {
-    const op = open.filter(([, x]) => x.site === o.site).length;
-    return `<tr><td>${esc(o.name)}${o.visits >= 3 ? '<span class="dd-rep">反覆到場</span>' : ''}</td><td class="r">${o.visits}</td><td class="r">${o.days.size}</td><td class="r gold">${op || ''}</td><td class="muted">${esc([...o.who].join('、'))}</td></tr>`;
-  }).join('');
-  // 人力分布
-  const byCust = {};
-  mr.forEach(r => { const k = custName(r); (byCust[k] = byCust[k] || new Set()).add(r.uid + '|' + r.date); });
-  const custArr = Object.entries(byCust).map(([k, v]) => [k, v.size]).sort((a, b) => b[1] - a[1]);
-  const maxC = custArr.length ? custArr[0][1] : 1;
+  const unfilledAll = mem.map(([uid, u]) => [u.name, (ms.users[uid] || { unfilled: [] }).unfilled.length]).filter(x => x[1]);
+  const T = ms.team, P = pms && pms.team;
+  const f = fabData(), fOpen = Object.values(f.items || {}).filter(x => !x.c), fGbg = fOpen.filter(x => x.ball === 'gbg').length, fOver = fOpen.filter(overdueDays).length;
+  const kpis = [
+    { l: `${+m.slice(5)} 月出勤人天`, v: T.pd, u: '人天', c: '#E7EAF2', d: P ? pctDelta(T.pd, P.pd) : `外勤 ${T.field}・內勤 ${T.office}`, dc: '#6FD3AE', s: spark(trendSeries('pd', s0 => s0.team.pd).map(x => x.v), '#E7EAF2') },
+    { l: '未結案待追蹤', v: open.length, u: '件', c: '#E8C14A', d: `已逾期 ${open.filter(([, x]) => x.due && x.due < t).length} 件・超過 7 天 ${open.filter(([, x]) => daysSince(x.date) > 7).length} 件`, dc: '#FF8A80', s: spark(trendSeries('o', s0 => s0.team.trk.openEnd).map(x => x.v), '#E8C14A') },
+    { l: 'FMX 等 GBG 回覆', v: fGbg, u: '張', c: '#4C8DF6', d: `開啟 ${fOpen.length} 張・逾期 ${fOver} 張`, dc: fOver ? '#FF8A80' : '#9AA3B5', s: '' },
+    { l: `${+m.slice(5)} 月費用`, v: (T.fuel + T.exp).toLocaleString(), u: 'NT$', c: '#E7EAF2', d: `油資 ${T.fuel.toLocaleString()}（${T.km} km）・雜項 ${T.exp.toLocaleString()}`, dc: '#9AA3B5', s: spark(trendSeries('c', s0 => s0.team.fuel + s0.team.exp).map(x => x.v), '#E7EAF2') },
+  ];
+  const rate0 = expected.length ? reported.length / expected.length * 100 : 100;
   return `
-  <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>總覽</h2></div><span class="dd-role">主管視角</span></div>
+  <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>售後服務戰情總覽</h2></div><div class="wr-hctl">${monthSelect()}<span class="dd-role">${boss ? '4 主管視角' : tierOf(me) === 3 ? '3 副管理視角' : '2 助理視角'}</span></div></div>
   ${needsReport(me) ? missStrip(me.uid, '您自己還有日報沒填') : ''}
-  <div class="dd-kpis">
-    <div class="dd-kpi"><span>最近工作日（${esc(mdw(lw))}）回報</span><b>${reported.length}<small> / ${expected.length} 人</small></b><em class="${missing.length ? 'red' : 'green'}">${missing.length ? '未回報：' + esc(missing.join('、')) : '全員已回報'}</em></div>
-    <div class="dd-kpi"><span>未結案待追蹤</span><b class="gold">${open.length}<small> 件</small></b><em class="${aged || over ? 'red' : ''}">超過 7 天 ${aged} 件・已逾期 ${over} 件</em></div>
-    <div class="dd-kpi"><span>本月出勤人天</span><b>${pd.size}<small> 人天</small></b><em>外勤 ${pd.size - pdOff.size}・內勤 ${pdOff.size}</em></div>
-    <div class="dd-kpi"><span>本月費用</span><b>${money(fuel + expSum)}</b><em>油資 ${fuel.toLocaleString()}（${round1(km)} km）・雜項 ${Math.round(expSum).toLocaleString()}</em></div>
+  <div class="wr-kpis">${kpis.map(k => `<div class="wr-kpi"><span class="wr-kl">${esc(k.l)}</span><div class="wr-kv"><div>${`<span class="wr-mono wr-big" style="color:${k.c}">${k.v}</span>`}<small>${k.u}</small></div>${k.s}</div><em style="color:${k.dc}">${esc(k.d)}</em></div>`).join('')}</div>
+  <div class="wr-row">
+    <div class="card wr-card wr-wide"><div class="wr-ct"><h3>${+m.slice(5)} 月出勤熱力圖</h3>${heatLegend()}</div><div class="wr-scroll">${heatmap(ms, m, mem)}</div></div>
+    <div class="card wr-card wr-narrow">
+      <div class="wr-ct"><h3>${esc(mdw(lw))} 回報率</h3></div>
+      <div class="wr-donut-wrap"><div class="wr-donut" style="background:conic-gradient(${rate0 >= 100 ? '#3FB68B' : '#E8C14A'} 0 ${rate0}%, #2A1517 ${rate0}% 100%)"><div class="wr-donut-in">${mono(`${reported.length}/${expected.length}`)}<small>人已回報</small></div></div>
+        <div class="wr-donut-leg"><span class="${missing.length ? 'red' : 'green'}">${missing.length ? '未回報：' + esc(missing.join('、')) : '全員已回報'}</span><span class="dr-hint">只計需要填日報的成員</span>${unfilledAll.length ? `<span class="red">${+m.slice(5)} 月累計未填：${esc(unfilledAll.map(x => `${x[0]} ${x[1]} 天`).join('、'))}</span>` : ''}</div></div>
+      <div class="wr-sep"></div>
+      <div class="wr-ct"><h3>${+m.slice(5)} 月客戶人力分布</h3></div>
+      ${donut(T.cust.slice(0, 7).concat(T.cust.length > 7 ? [{ name: '其他', pd: T.cust.slice(7).reduce((a, x) => a + x.pd, 0) }] : []), T.pd, '人天')}
+    </div>
   </div>
-  <div class="dd-row">
-    <div class="card dd-wide"><div class="card-title"><span>需要關注的待追蹤</span><button type="button" class="btn btn-ghost btn-sm" data-go="track">看全部 ${open.length} 件</button></div>
-      ${open.length ? trackRows(sortTracks(open).slice(0, 5), true, false) : '<div class="dr-hint">目前沒有未結案事項</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>${esc(mdw(lw))} 回報狀態</span><span class="dr-hint">右側為本月狀況</span></div>${people}</div>
+  <div class="wr-row">
+    <div class="card wr-card wr-wide"><div class="wr-ct"><h3>每日出勤人數</h3><div class="wr-legend"><span><i style="background:#4C8DF6"></i>外勤</span><span><i style="background:#8C7A3C"></i>內勤</span></div></div>${dailyBars(m)}</div>
+    <div class="card wr-card wr-narrow"><div class="wr-ct"><h3>待追蹤天數分布</h3><button type="button" class="btn btn-ghost btn-sm" data-go="track">看全部 ${open.length} 件</button></div>${agingCard(open)}</div>
   </div>
-  <div class="dd-row">
-    <div class="card dd-wide"><div class="card-title"><span>近 7 天案場動態</span><span class="dr-hint">7 天內到場 3 次以上標示反覆到場</span></div>
-      ${siteRows ? `<div style="overflow-x:auto"><table class="data-table dd-table"><thead><tr><th>客戶／案場</th><th class="r">到場</th><th class="r">人天</th><th class="r">未結案</th><th>人員</th></tr></thead><tbody>${siteRows}</tbody></table></div>` : '<div class="dr-hint">近 7 天沒有外勤紀錄</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>本月人力分布（人天）</span></div>
-      ${custArr.length ? custArr.map(([k, v]) => `<div class="dd-bar"><div class="dd-bar-h"><span>${esc(k)}</span><span>${v} 人天</span></div><div class="dd-bar-t"><div style="width:${Math.max(4, v / maxC * 100)}%"></div></div></div>`).join('') : '<div class="dr-hint">本月尚無資料</div>'}</div>
-  </div>
-  ${fabDashCard()}
-  ${isAdmin() ? workloadCard() : ''}`;
+  ${fmxCard()}
+  ${boss ? loadCard(ms, m) : ''}`;
 }
-// ═════════════ v2.5 FMX Issue Ticket摘要（總覽） ═════════════
-function fabDashCard() {
-  const f = fabData(), st = fabSiteStats(f.items);
-  const need = Object.values(f.items || {}).filter(x => !x.c && x.ball === 'gbg').sort((a, b) => overdueDays(b) - overdueDays(a) || (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 5);
-  return `<div class="dd-row">
-    <div class="card dd-wide"><div class="card-title"><span>FMX Issue Ticket：等 GBG 回覆</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">前往 FMX Issue Ticket</button></div>
-      ${need.length ? need.map(x => `<div class="fb-mini">${ballDot(x)}<a href="${linkOf(x)}" target="_blank" rel="noopener noreferrer">#${esc(x.id)}</a><span class="fb-site">${esc(x.site || x.p)}</span><span class="fb-mini-t">${esc(String(x.s || '').trim())}</span><span class="dr-hint">${esc(x.a)}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</span></div>`).join('') : '<div class="dr-hint">目前沒有等 GBG 回覆的工單</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>FMX Issue Ticket（依案場）</span><span class="dr-hint">${f.meta && f.meta.at ? '同步 ' + esc(fmtTime(f.meta.at)) : '尚未同步'}</span></div>
-      ${st.length ? `<table class="data-table dd-table"><thead><tr><th>案場</th><th class="r">開啟</th><th class="r">🔵</th><th class="r">🔴</th><th class="r">逾期</th></tr></thead><tbody>${st.map(o => `<tr><td>${esc(o.site)}</td><td class="r">${o.open}</td><td class="r">${o.gbg}</td><td class="r">${o.fab}</td><td class="r ${o.over ? 'red' : ''}">${o.over || ''}</td></tr>`).join('')}</tbody></table>` : '<div class="dr-hint">尚無資料</div>'}</div>
-  </div>`;
-}
-// ═════════════ v2.5 人力負荷（只限 4 級主管） ═════════════
-// 依日報工作時間估算（不含交通時間）；單日超過 6 小時扣 1 小時午休；工作日超過 8 小時、非工作日全部列為加班
-let wlPrev = false;
-function workloadCard() {
-  const m = wlPrev ? ym(addDays(today().slice(0, 8) + '01', -1)) : ym(today());
-  const mr = monthReports(m);
-  const rows = reporters().map(([uid, u]) => {
-    const byDay = {};
-    mr.filter(r => r.uid === uid).forEach(r => { const o = byDay[r.date] = byDay[r.date] || { h: 0, ovn: false, field: false, cust: new Set() }; o.h += hoursOf(r); if (r.overnight) o.ovn = true; if (!isOfficeR(r)) { o.field = true; o.cust.add(r.cust); } });
-    const days = Object.keys(byDay).sort();
-    let streak = 0, best = 0, prev = null, ot = 0;
-    days.forEach(d => { streak = prev && addDays(prev, 1) === d ? streak + 1 : 1; best = Math.max(best, streak); prev = d;
-      const h = byDay[d].h, w = h - (h > 6 ? 1 : 0); ot += isWorkdayFor(uid, d) ? Math.max(0, w - 8) : w; });
-    const long = days.filter(d => byDay[d].h > 12);
-    return { name: u.name, days: days.length, field: days.filter(d => byDay[d].field).length, long, best, ot: round1(ot),
-      ovn: days.filter(d => byDay[d].ovn).length, hol: days.filter(d => !isWorkdayFor(uid, d)).length, cust: new Set(days.flatMap(d => [...byDay[d].cust])).size };
-  }).sort((a, b) => b.ot - a.ot || b.days - a.days);
-  const otc = v => v > 46 ? 'wl-red' : v > 40 ? 'wl-yel' : '';
-  return `<div class="card"><div class="card-title"><span>人力負荷（${+m.slice(5)} 月）</span>
-    <select class="dr-in wl-sel" id="drWlMonth"><option value="cur" ${wlPrev ? '' : 'selected'}>本月</option><option value="prev" ${wlPrev ? 'selected' : ''}>上月</option></select></div>
-    <div style="overflow-x:auto"><table class="data-table dd-table"><thead><tr><th>成員</th><th class="r">出勤天數</th><th class="r">單日超過 12 小時</th><th class="r">最長連續出勤</th><th class="r">估算加班</th><th class="r">跨夜／假日</th><th class="r">服務客戶數</th></tr></thead><tbody>
-    ${rows.map(x => `<tr><td>${esc(x.name)}</td><td class="r">${x.days}<span class="dr-hint">（外勤 ${x.field}）</span></td>
-      <td class="r ${x.long.length ? 'wl-yel' : ''}" title="${esc(x.long.map(d => d.slice(5).replace('-', '/')).join('、'))}">${x.long.length ? `${x.long.length} 天<div class="dr-hint">${esc(x.long.map(d => +d.slice(8)).join('、'))} 日</div>` : '—'}</td>
-      <td class="r ${x.best > 6 ? 'wl-red' : ''}">${x.best ? x.best + ' 天' : '—'}</td>
-      <td class="r ${otc(x.ot)}">${x.ot} 小時</td><td class="r">${x.ovn} ／ ${x.hol}</td><td class="r">${x.cust}</td></tr>`).join('')}
-    </tbody></table></div>
-    <p class="dr-hint" style="margin-top:10px">依日報資料估算，以日報工作時間計（不含交通時間）。單日超過 6 小時扣 1 小時午休；工作日超過 8 小時、假日與停班日全部列為加班。估算加班超過 40 小時標黃、超過 46 小時標紅；連續出勤超過 6 天標紅。只列需要填日報的成員。</p></div>`;
+function loadCard(ms, m) {
+  const MAX = 60, rows = reporters().map(([uid, u]) => ({ uid, u, s: ms.users[uid] })).filter(x => x.s).sort((a, b) => b.s.ot - a.s.ot);
+  const col = v => v > 46 ? '#E5484D' : v > 40 ? '#E8C14A' : '#4C8DF6';
+  const advRows = Object.entries(advice).filter(([uid]) => users[uid] && tierOf(users[uid]) < 4);
+  return `<div class="card wr-card wr-load"><div class="wr-ct"><h3>人力負荷（${+m.slice(5)} 月，只限主管）</h3><span class="dr-hint">估算加班；紅色虛線為 46 小時上限</span></div>
+    ${rows.map(({ u, s }) => `<div class="wr-lrow"><span class="wr-lname">${esc(u.name)}</span><div class="wr-ltrack"><div style="width:${Math.min(100, s.ot / MAX * 100)}%;background:${col(s.ot)}"></div><i style="left:${46 / MAX * 100}%"></i></div><span class="wr-mono wr-lv" style="color:${col(s.ot)}">${s.ot} h</span>
+      <span class="wr-lnote">出勤 ${s.days} 天${s.long.length ? `・12h 以上 ${s.long.length} 天` : ''}${s.streak > 6 ? `・<b class="red">連續 ${s.streak} 天</b>` : `・最長連續 ${s.streak} 天`}${s.ovn || s.hol ? `・跨夜／假日 ${s.ovn}／${s.hol}` : ''}・客戶 ${s.cust}</span></div>`).join('')}
+    <p class="dr-hint" style="margin-top:8px">依日報資料估算，正式工時以打卡之星為準。單日超過 6 小時扣 1 小時午休；工作日超過 8 小時、假日與停班日全部列為加班。</p>
+    <details class="wr-adv-list"><summary>Hana 小叮嚀（已自動發佈 ${advRows.length} 位）</summary>
+      ${advRows.length ? advRows.map(([uid, a]) => `<div class="wr-adv-item"><b>${esc(users[uid].name)}</b>${a.week ? `<div class="wr-adv-k">每週</div>${adviceHtml(a.week)}` : ''}${a.month ? `<div class="wr-adv-k">每月</div>${adviceHtml(a.month)}` : ''}</div>`).join('') : '<div class="dr-hint">尚未發佈</div>'}
+    </details></div>`;
 }
 function dashEng(m) {
-  const t = today(), uid = me.uid, mr = monthReports(m).filter(r => r.uid === uid);
+  const t = today(), uid = me.uid, cm = ym(today());
   const todayRs = reportsOf(uid, t), lv = leaveOf(uid, t), cl = closureFor(uid, t);
   let cta;
   if (cl && !todayRs.length) cta = `<div class="dd-cta blue"><div><b>今天公司停班（${esc(cl.name)}）</b><span>不需填寫日報；若仍有出勤，請照常填寫。</span></div><div class="dd-cta-btns"><button type="button" class="btn btn-ghost" data-start="today">仍有出勤，填寫日報</button></div></div>`;
@@ -1397,29 +1459,58 @@ function dashEng(m) {
   else if (todayRs.length) cta = `<div class="dd-cta green"><div><b>今天已填 ${todayRs.length} 筆日報</b><span>同一天跑多個案場，每個案場各填一筆。</span></div><div class="dd-cta-btns"><button type="button" class="btn btn-ghost" data-start="today">再填一筆</button></div></div>`;
   else cta = `<div class="dd-cta"><div><b>${isWorkdayFor(uid, t) ? '今天的日報還沒填' : '今天是假日'}</b><span>${isWorkdayFor(uid, t) ? '收工後記得填寫，主管明早 08:00 會收到彙整。' : '若有加班出勤，請照常填寫日報。'}</span></div>
     <div class="dd-cta-btns"><button type="button" class="btn btn-ghost dd-gold-outline" data-start="today" data-office="1">今天是內勤</button><button type="button" class="btn btn-primary" data-start="today">開始填寫日報</button></div></div>`;
-  const open = sortTracks(Object.entries(tracking).filter(([, x]) => x.uid === uid && !x.closedAt));
-  const days = new Set(mr.map(r => r.date)).size;
+  const ms = statsOf(m), s = ms.users[uid] || { days: 0, field: 0, ot: 0, streak: 0, long: [], daily: {}, unfilled: [], workdays: 0, ovn: 0, hol: 0 };
+  const mr = monthReports(m).filter(r => r.uid === uid);
   const km = round1(mr.filter(r => r.drive && r.route).reduce((a, r) => a + kmOf(r.route), 0));
   const expSum = mr.reduce((a, r) => a + (r.exps || []).reduce((b, x) => b + (parseFloat(x.amt) || 0), 0), 0);
-  const prev = ym(addDays(t.slice(0, 8) + '01', -1));
-  const recent = [...monthReports(m), ...monthReports(prev)].filter(r => r.uid === uid).sort((a, b) => b.date.localeCompare(a.date) || (b.start || '').localeCompare(a.start || '')).slice(0, 3);
+  const gauges = [
+    { l: '出勤', v: s.days, u: `／ ${s.workdays} 天`, w: s.workdays ? s.days / s.workdays * 100 : 0, c: '#E7EAF2', n: `外勤 ${s.field} 天${s.unfilled.length ? `・<span class="red">未填 ${s.unfilled.length} 天</span>` : ''}` },
+    { l: '估算加班', v: s.ot, u: '／ 46 小時', w: s.ot / 46 * 100, c: s.ot > 46 ? '#E5484D' : s.ot > 40 ? '#E8C14A' : '#3FB68B', n: '超過 40 小時黃、46 小時紅' },
+    { l: '最長連續出勤', v: s.streak, u: '／ 6 天', w: s.streak / 6 * 100, c: s.streak > 6 ? '#E5484D' : s.streak >= 5 ? '#E8C14A' : '#3FB68B', n: '超過 6 天會標紅' },
+    { l: '單日超過 12 小時', v: s.long.length, u: '天', w: Math.max(2, s.long.length / 5 * 100), c: s.long.length ? '#F08A3C' : '#3FB68B', n: `跨夜 ${s.ovn} 次・假日出勤 ${s.hol} 天` },
+  ];
+  const mEnd = new Date(+m.slice(0, 4), +m.slice(5, 7), 0).getDate(), first = (new Date(m + '-01T00:00:00').getDay() + 6) % 7;
+  const cells = [];
+  for (let i = 0; i < first; i++) cells.push('<div class="wr-cal-c blank"></div>');
+  for (let d = 1; d <= mEnd; d++) {
+    const ds = `${m}-${String(d).padStart(2, '0')}`, h = s.daily[ds.slice(8)];
+    let cls = '', st = '', lab = '';
+    if (h !== undefined) { st = `background:${heatColor(h)};border-color:${heatColor(h)}`; lab = h + 'h'; cls = h > 10 ? 'dark' : ''; }
+    else if (isWorkday(ds) && (leaveOf(uid, ds) || closureFor(uid, ds))) { st = 'background:#2B4C7E;border-color:#2B4C7E'; lab = leaveOf(uid, ds) ? '休假' : '停班'; }
+    else if (s.unfilled.includes(ds)) { cls = 'miss'; lab = '未填'; }
+    else if (!isWorkday(ds)) cls = 'off';
+    cells.push(`<div class="wr-cal-c ${cls}" style="${st}" ${s.unfilled.includes(ds) ? `data-start="${ds}" role="button" tabindex="0" title="補填 ${esc(mdw(ds))}"` : ''}><span>${d}</span><b>${lab}</b></div>`);
+  }
+  const tr = trendSeries('h', s0 => s0.users && s0.users[uid] ? s0.users[uid] : null);
+  const mxH = Math.max(1, ...tr.map(x => x.v ? x.v.hours + x.v.ot : 0));
+  const myAdv = advice[uid] || {};
+  const open = sortTracks(Object.entries(tracking).filter(([, x]) => x.uid === uid && !x.closedAt));
   const myFab = Object.values(fabData().items || {}).filter(x => !x.c && isMine(x, me)).sort((a, b) => (a.ball === 'gbg' ? 0 : 1) - (b.ball === 'gbg' ? 0 : 1) || overdueDays(b) - overdueDays(a));
   return `
-  <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>${esc(me.name)}，你好</h2></div><span class="dd-role blue">工程師視角</span></div>
+  <div class="dd-head"><div><div class="dd-date">${esc(t.replace(/-/g, '/'))}（${wdOf(t)}）</div><h2>${esc(String(me.name || '').split(/\s+/)[0])}，你好</h2></div><div class="wr-hctl">${monthSelect()}<span class="dd-role blue">1 工程師視角</span></div></div>
   ${cta}
   ${missStrip(uid)}
-  <div class="dd-row">
-    <div class="card dd-wide"><div class="card-title"><span>我的待追蹤（${open.length}）</span><button type="button" class="btn btn-ghost btn-sm" data-go="track">前往待追蹤</button></div>
-      ${open.length ? trackRows(open.slice(0, 5), false, true) : '<div class="dr-hint">沒有未結案的事項</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>我的本月數字</span></div>
-      <div class="dd-mini"><div><span>出勤</span><b>${days} 天</b></div><div><span>里程</span><b>${km} km</b></div><div><span>油資</span><b>${money(km * rate())}</b></div><div><span>雜項支出</span><b>${money(expSum)}</b></div></div>
-      <button type="button" class="btn btn-ghost btn-sm" data-go="fuel" style="margin-top:12px">匯出油資／雜項支出報表</button></div>
+  <div class="wr-kpis">${gauges.map(g => `<div class="wr-kpi"><span class="wr-kl">${esc(g.l)}（${+m.slice(5)} 月）</span><div><span class="wr-mono wr-big" style="color:${g.c}">${g.v}</span><small>${esc(g.u)}</small></div><div class="wr-gauge"><div style="width:${Math.min(100, g.w)}%;background:${g.c}"></div></div><em>${g.n}</em></div>`).join('')}</div>
+  <div class="wr-row">
+    <div class="card wr-card wr-half"><div class="wr-ct"><h3>我的 ${+m.slice(5)} 月出勤日曆</h3><span class="dr-hint">顏色＝當天工時；未填可點選補填</span></div>
+      <div class="wr-cal">${['一', '二', '三', '四', '五', '六', '日'].map(w => `<span class="wr-cal-w">${w}</span>`).join('')}${cells.join('')}</div>
+      ${heatLegend()}
+      <div class="wr-cal-f"><span>里程 ${km} km・油資 ${money(km * rate())}・雜項 ${money(expSum)}</span><button type="button" class="btn btn-ghost btn-sm" data-go="fuel">匯出報表</button></div></div>
+    <div class="wr-half wr-col">
+      <div class="card wr-card"><div class="wr-ct"><h3>近 6 個月工時</h3><div class="wr-legend"><span><i style="background:#4C8DF6"></i>正常工時</span><span><i style="background:#E8C14A"></i>估算加班</span></div></div>
+        <div class="wr-bars wr-trend">${tr.map(x => { const v = x.v; return `<div class="wr-bar">${v && v.days ? `<span class="wr-bar-n">${Math.round(v.hours)}h</span><div style="height:${v.ot / mxH * 120}px;background:#E8C14A;border-radius:3px 3px 0 0"></div><div style="height:${(v.hours - v.ot) / mxH * 120}px;background:#4C8DF6"></div>` : '<span class="wr-bar-n">—</span>'}<span class="wr-bar-d">${+x.m.slice(5)} 月</span></div>`; }).join('')}</div></div>
+      <div class="card wr-card wr-adv"><div class="wr-ct"><h3>Hana 的出勤小叮嚀</h3><span class="dr-hint">只有你和主管看得到</span></div>
+        ${myAdv.week ? `<div class="wr-adv-k">本週</div>${adviceHtml(myAdv.week)}` : ''}
+        ${myAdv.month ? `<div class="wr-adv-k">每月</div>${adviceHtml(myAdv.month)}` : ''}
+        ${!myAdv.week && !myAdv.month ? '<div class="dr-hint">每週一與每月 1 號會收到 Hana 的小叮嚀</div>' : ''}
+        <div class="dr-hint">依日報資料估算，正式工時以打卡之星為準。</div></div>
+    </div>
   </div>
-  <div class="dd-row">
-    <div class="card dd-wide"><div class="card-title"><span>最近的日報</span></div>
-      ${recent.length ? recent.map(r => `<div class="dd-rep-row"><span class="dd-rd">${esc(r.date.slice(5).replace('-', '/'))}</span><div class="dd-main"><div class="dd-t">${esc(custName(r))}／${esc(siteName(r))}</div><div class="dd-s">${esc((r.items || []).map((x, i) => `${i + 1}. ${x}`).join(' ') || '（無處理事項）')}</div></div><span class="dd-s">${round1(hoursOf(r))}h${r.overnight ? '・跨夜' : ''}${r.drive ? '・' + round1(kmOf(r.route)) + ' km' : ''}</span></div>`).join('') : '<div class="dr-hint">還沒有日報</div>'}</div>
-    <div class="card dd-narrow"><div class="card-title"><span>指派給我的 FMX Issue Ticket</span><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">全部</button></div>
-      ${myFab.length ? myFab.slice(0, 6).map(x => `<a class="dd-tk" href="${linkOf(x)}" target="_blank" rel="noopener noreferrer"><div class="dd-t">${ballDot(x)} #${esc(x.id)}　${esc(String(x.s || '').trim())}</div><div class="dd-s ${x.ball === 'gbg' ? 'blue' : ''}">${esc(x.site || x.p)}・${esc(x.st)}${x.ball === 'gbg' ? '・等 GBG 回覆' : '・等原廠回覆'}${x.due ? '・到期 ' + esc(x.due.slice(5).replace('-', '/')) : ''}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</div></a>`).join('') : '<div class="dr-hint">沒有指派給你的FMX Issue Ticket</div>'}</div>
+  <div class="wr-row">
+    <div class="card wr-card wr-half"><div class="wr-ct"><h3>與我相關的 FMX Issue Ticket（${myFab.length}）</h3><button type="button" class="btn btn-ghost btn-sm" data-go="tickets">全部</button></div>
+      ${myFab.length ? myFab.slice(0, 8).map(x => `<a class="dd-tk" href="${linkOf(x)}" target="_blank" rel="noopener noreferrer"><div class="dd-t">${ballDot(x)} #${esc(x.id)}　${esc(String(x.s || '').trim())}</div><div class="dd-s ${x.ball === 'gbg' ? 'blue' : ''}">${esc(x.site || x.p)}・${esc(x.st)}${x.ball === 'gbg' ? '・等 GBG 回覆' : '・等原廠回覆'}${x.due ? '・到期 ' + esc(x.due.slice(5).replace('-', '/')) : ''}${overdueDays(x) ? `・<span class="fb-over">逾期 ${overdueDays(x)} 天</span>` : ''}</div></a>`).join('') : '<div class="dr-hint">沒有與你相關的 FMX Issue Ticket</div>'}</div>
+    <div class="card wr-card wr-half"><div class="wr-ct"><h3>我的待追蹤（${open.length}）</h3><button type="button" class="btn btn-ghost btn-sm" data-go="track">前往待追蹤</button></div>
+      ${open.length ? trackRows(open.slice(0, 5), false, true) : '<div class="dr-hint">沒有未結案的事項</div>'}</div>
   </div>`;
 }
 
@@ -1687,6 +1778,8 @@ function renderMembers() {
   if (rfi && document.activeElement !== rfi) rfi.value = settings.remindFrom || '';
   const wt = $('drWeeklyTo');
   if (wt && document.activeElement !== wt) wt.value = (settings.weeklyTo || []).join(', ');
+  const mt = $('drMonthlyTo');
+  if (mt && document.activeElement !== mt) mt.value = (settings.monthlyTo || []).join(', ');
   const dt = $('drDigestTo');
   if (dt && document.activeElement !== dt) dt.value = (settings.digestTo || []).join(', ');
   const gs = $('drGKeyState'), k = gmapsKey();
@@ -1702,6 +1795,12 @@ function renderMembers() {
       const bad = list.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
       if (bad.length) { toast('Email 格式不正確：' + bad.join('、')); return; }
       try { await set(ref(db, 'settings/weeklyTo'), list); toast(list.length ? `週報收件人已儲存（${list.length} 位）` : '已清空，週報將不自動寄出'); } catch (er) { toast('儲存失敗：' + er.message); }
+    };
+    $('drMonthlyToSave').onclick = async () => {
+      const list = [...new Set($('drMonthlyTo').value.split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
+      const bad = list.filter(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x));
+      if (bad.length) { toast('Email 格式不正確：' + bad.join('、')); return; }
+      try { await set(ref(db, 'settings/monthlyTo'), list); toast(list.length ? `月報收件人已儲存（${list.length} 位）` : '已清空，月報將不自動寄出'); } catch (er) { toast('儲存失敗：' + er.message); }
     };
     $('drDigestToSave').onclick = async () => {
       const list = [...new Set($('drDigestTo').value.split(/[,，、;；\s]+/).map(x => x.trim().toLowerCase()).filter(Boolean))];
